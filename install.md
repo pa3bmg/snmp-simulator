@@ -13,7 +13,49 @@
 
 ---
 
-## 1. Copy the installation files to the server
+## Offline installation (no internet on target server)
+
+Use this when the target server has no internet access.
+
+### Step 1 — pre-download Python wheels (on an internet-connected machine)
+
+Run this once on your Mac or any machine with internet and Python 3.11:
+
+```bash
+cd snmp-simulator
+bash bundle_offline.sh
+```
+
+This creates an `offline_packages/` folder containing all 16 required `.whl` files.
+
+### Step 2 — ensure system packages are available
+
+The installer uses `dnf` to install `python3.11`, `gcc`, `rsync`, and `iproute`. On the offline server one of these must be true:
+
+- **Already-configured local repo** — if your server already has a local Rocky/RHEL repo configured in `/etc/yum.repos.d/`, nothing extra is needed. `dnf` will use it automatically.
+- **Rocky ISO auto-mount** — place a `Rocky*.iso` file in the same folder as `install.sh`. The installer will mount it and configure a temporary `dnf` repo from it automatically.
+
+### Step 3 — copy the folder to the offline server
+
+```bash
+scp -r snmp-simulator/ root@<offline-server>:/tmp/snmp-simulator
+```
+
+The `offline_packages/` folder must be included in the copy.
+
+### Step 4 — run the installer
+
+```bash
+bash /tmp/snmp-simulator/install.sh
+```
+
+The installer detects `offline_packages/` and uses `pip install --no-index` — no internet required for Python dependencies.
+
+---
+
+## Online installation
+
+
 
 From your workstation, copy the project folder to the target server. Replace `<server-ip>` with the actual IP address.
 
