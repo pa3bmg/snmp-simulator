@@ -50,6 +50,32 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 info "Source directory: $SCRIPT_DIR"
 
 # --------------------------------------------------------------------------- #
+#  Offline mode: mount Rocky ISO as local dnf repo if no internet             #
+# --------------------------------------------------------------------------- #
+OFFLINE_WHEELS="$SCRIPT_DIR/offline_packages"
+ROCKY_ISO="$(ls "$SCRIPT_DIR"/Rocky*.iso 2>/dev/null | head -1 || true)"
+
+if [[ -n "$ROCKY_ISO" ]]; then
+    info "Found Rocky ISO: $ROCKY_ISO — mounting as local dnf repo..."
+    mkdir -p /mnt/rocky-iso
+    mount -o loop "$ROCKY_ISO" /mnt/rocky-iso 2>/dev/null || true
+    cat > /etc/yum.repos.d/rocky-iso.repo <<REPO
+[rocky-iso-baseos]
+name=Rocky Linux ISO - BaseOS
+baseurl=file:///mnt/rocky-iso/BaseOS
+enabled=1
+gpgcheck=0
+
+[rocky-iso-appstream]
+name=Rocky Linux ISO - AppStream
+baseurl=file:///mnt/rocky-iso/AppStream
+enabled=1
+gpgcheck=0
+REPO
+    info "ISO repo configured."
+fi
+
+# --------------------------------------------------------------------------- #
 #  Install system packages                                                     #
 # --------------------------------------------------------------------------- #
 info "Installing system packages..."
@@ -102,8 +128,15 @@ info "Creating Python virtual environment..."
 
 info "Installing Python dependencies..."
 "$VENV/bin/pip" install --upgrade pip setuptools wheel -q
-"$VENV/bin/pip" install -r "$INSTALL_DIR/requirements.txt" || \
-    error "pip install failed — check requirements.txt and internet connectivity"
+if [[ -d "$OFFLINE_WHEELS" && "$(ls "$OFFLINE_WHEELS"/*.whl 2>/dev/null | wc -l)" -gt 0 ]]; then
+    info "Offline wheels found — installing without internet..."
+    "$VENV/bin/pip" install --no-index --find-links "$OFFLINE_WHEELS" \
+        -r "$INSTALL_DIR/requirements.txt" || \
+        error "Offline pip install failed — re-run bundle_offline.sh on an internet machine"
+else
+    "$VENV/bin/pip" install -r "$INSTALL_DIR/requirements.txt" || \
+        error "pip install failed — check internet connectivity or use bundle_offline.sh"
+fi
 
 # --------------------------------------------------------------------------- #
 #  Create config directory and default files if missing                       #
