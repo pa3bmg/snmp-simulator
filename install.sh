@@ -114,7 +114,8 @@ if [[ ! -f "$INSTALL_DIR/config/devices.json" ]]; then
 fi
 if [[ ! -f "$INSTALL_DIR/config/discovery_profiles.json" ]]; then
     echo '[]' > "$INSTALL_DIR/config/discovery_profiles.json"
-fi# Secure the config directory (root-only read/write)
+fi
+# Secure the config directory (root-only read/write)
 chown -R root:root "$INSTALL_DIR/config"
 chmod 700 "$INSTALL_DIR/config"
 chmod 600 "$INSTALL_DIR/config"/*.json 2>/dev/null || true
