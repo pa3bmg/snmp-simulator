@@ -1,0 +1,3377 @@
+<!doctype html>
+<html lang="en" data-bs-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SNMP Simulator</title>
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"
+      rel="stylesheet"
+    />
+    <style>
+      body {
+        background-color: #111827;
+      }
+      .navbar {
+        background-color: #1e3a5f !important;
+      }
+      .navbar-brand {
+        font-weight: 700;
+        letter-spacing: 1px;
+        font-size: 1.1rem;
+      }
+      #trap-log {
+        max-height: 240px;
+        overflow-y: auto;
+      }
+      .table td,
+      .table th {
+        vertical-align: middle;
+      }
+      .status-badge {
+        min-width: 74px;
+        display: inline-block;
+        text-align: center;
+      }
+      .trap-linkdown {
+        color: #e74c3c;
+      }
+      .trap-linkup {
+        color: #2ecc71;
+      }
+      .trap-cpuhigh {
+        color: #f39c12;
+      }
+      .card {
+        border-color: #2d3748;
+      }
+      .card-header {
+        background-color: #1a2332;
+        border-color: #2d3748;
+      }
+      pre {
+        margin: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- ================================================================
+     Navbar
+     ================================================================ -->
+    <nav class="navbar px-3 py-2">
+      <span class="navbar-brand text-white">
+        <i class="bi bi-router me-2"></i>SNMP Simulator
+      </span>
+      <!-- Page tabs -->
+      <ul class="nav nav-pills nav-fill mx-3" id="main-tabs">
+        <li class="nav-item">
+          <a
+            class="nav-link active text-white py-1 px-3"
+            href="#"
+            onclick="
+              showTab('devices');
+              return false;
+            "
+            id="tab-devices"
+          >
+            <i class="bi bi-diagram-3 me-1"></i>Devices
+          </a>
+        </li>
+        <li class="nav-item">
+          <a
+            class="nav-link text-white py-1 px-3"
+            href="#"
+            onclick="
+              showTab('topology');
+              return false;
+            "
+            id="tab-topology"
+          >
+            <i class="bi bi-share-fill me-1"></i>Topology / CDP
+          </a>
+        </li>
+        <li class="nav-item">
+          <a
+            class="nav-link text-white py-1 px-3"
+            href="#"
+            onclick="
+              showTab('canvas');
+              return false;
+            "
+            id="tab-canvas"
+          >
+            <i class="bi bi-diagram-3-fill me-1"></i>Canvas
+          </a>
+        </li>
+        <li class="nav-item">
+          <a
+            class="nav-link text-white py-1 px-3"
+            href="#"
+            onclick="
+              showTab('server');
+              return false;
+            "
+            id="tab-server"
+          >
+            <i class="bi bi-hdd-network me-1"></i>Server Network
+          </a>
+        </li>
+        <li class="nav-item">
+          <a
+            class="nav-link text-white py-1 px-3"
+            href="#"
+            onclick="
+              showTab('discovery');
+              return false;
+            "
+            id="tab-discovery"
+          >
+            <i class="bi bi-search me-1"></i>Discovery
+          </a>
+        </li>
+      </ul>
+      <div class="d-flex gap-2">
+        <button
+          class="btn btn-outline-light btn-sm"
+          onclick="openAddModal()"
+          id="btn-add-device"
+        >
+          <i class="bi bi-plus-circle"></i> Add Device
+        </button>
+        <button
+          class="btn btn-success btn-sm"
+          onclick="startAll()"
+          id="btn-start-all"
+        >
+          <i class="bi bi-play-fill"></i> Start All
+        </button>
+        <button
+          class="btn btn-danger btn-sm"
+          onclick="stopAll()"
+          id="btn-stop-all"
+        >
+          <i class="bi bi-stop-fill"></i> Stop All
+        </button>
+        <button
+          class="btn btn-outline-primary btn-sm d-none"
+          onclick="openAddLinkModal()"
+          id="btn-add-link"
+        >
+          <i class="bi bi-plug-fill"></i> Add Link
+        </button>
+        <button
+          class="btn btn-outline-danger btn-sm d-none"
+          onclick="deleteCanvasSelection()"
+          id="btn-canvas-delete"
+        >
+          <i class="bi bi-trash"></i> Delete Selected
+        </button>
+      </div>
+    </nav>
+
+    <!-- ================================================================
+     Main Content
+     ================================================================ -->
+    <div class="container-fluid mt-3 px-4">
+      {% if not elevated %}
+      <div
+        class="alert alert-warning alert-dismissible fade show py-2 small"
+        role="alert"
+      >
+        <i class="bi bi-exclamation-triangle-fill me-1"></i>
+        Not running as root/admin — IP alias management disabled. Use ports
+        1161+ on 127.0.0.x loopback addresses for testing without sudo.
+        <button
+          type="button"
+          class="btn-close"
+          data-bs-dismiss="alert"
+        ></button>
+      </div>
+      {% endif %}
+
+      <!-- ============================================================
+           DEVICES TAB
+           ============================================================ -->
+      <div id="section-devices">
+        <div class="card mb-3">
+          <div class="card-header d-flex align-items-center fw-semibold">
+            <i class="bi bi-diagram-3 me-2"></i>Devices
+            <span class="badge bg-secondary ms-2" id="device-count">0</span>
+          </div>
+          <div class="card-body p-0">
+            <table
+              class="table table-dark table-striped table-hover align-middle mb-0"
+              id="device-table"
+              style="table-layout: fixed; width: 100%"
+            >
+              <thead style="background-color: #1a2332">
+                <tr>
+                  <th>Name</th>
+                  <th>IP : Port</th>
+                  <th>Type</th>
+                  <th>Status</th>
+                  <th>CPU %</th>
+                  <th>IFC Up / Down</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+            </table>
+            <div style="max-height: 390px; overflow-y: auto">
+              <table
+                class="table table-dark table-striped table-hover align-middle mb-0"
+                style="table-layout: fixed; width: 100%"
+              >
+                <colgroup>
+                  <col />
+                  <col />
+                  <col />
+                  <col />
+                  <col />
+                  <col />
+                  <col />
+                </colgroup>
+                <tbody id="device-tbody">
+                  <tr id="no-devices-row">
+                    <td colspan="7" class="text-center text-muted py-5">
+                      No devices configured — click
+                      <strong>Add Device</strong> to get started.
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Profiles -->
+        <div class="card mb-3">
+          <div
+            class="card-header d-flex justify-content-between align-items-center fw-semibold"
+          >
+            <span><i class="bi bi-archive me-2"></i>Saved Configurations</span>
+            <button
+              class="btn btn-outline-primary btn-sm"
+              onclick="openSaveProfileModal()"
+            >
+              <i class="bi bi-floppy"></i> Save Current
+            </button>
+          </div>
+          <div class="card-body p-0">
+            <table
+              class="table table-dark table-striped table-hover align-middle mb-0 small"
+              id="profile-table"
+            >
+              <thead style="background-color: #1a2332">
+                <tr>
+                  <th>Name</th>
+                  <th>Devices</th>
+                  <th>Saved</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="profile-tbody">
+                <tr id="no-profiles-row">
+                  <td colspan="4" class="text-center text-muted py-3">
+                    No saved configurations yet — click
+                    <strong>Save Current</strong> to save your device list.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Trap Log -->
+        <div class="card">
+          <div
+            class="card-header d-flex justify-content-between align-items-center fw-semibold"
+          >
+            <span><i class="bi bi-bell me-2"></i>Trap Log</span>
+            <button
+              class="btn btn-outline-secondary btn-sm"
+              onclick="clearLog()"
+            >
+              <i class="bi bi-trash"></i> Clear
+            </button>
+          </div>
+          <div
+            class="card-body p-2"
+            style="background: #0d1117; border-radius: 0 0 0.375rem 0.375rem"
+          >
+            <ul
+              id="trap-log"
+              class="list-unstyled small mb-0 font-monospace ps-1"
+            >
+              <li class="text-muted">— waiting for traps —</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <!-- /section-devices -->
+
+      <!-- ============================================================
+           TOPOLOGY TAB
+           ============================================================ -->
+      <div id="section-topology" class="d-none">
+        <div class="card mb-3">
+          <div class="card-header fw-semibold">
+            <i class="bi bi-share-fill me-2"></i>Interface Links
+            <span class="text-muted small fw-normal ms-2">
+              — connects interfaces between devices; generates CDP neighbour
+              OIDs for CA Spectrum
+            </span>
+          </div>
+          <div class="card-body p-0">
+            <table
+              class="table table-dark table-striped table-hover align-middle mb-0 small"
+              id="link-table"
+              style="table-layout: fixed; width: 100%"
+            >
+              <thead style="background-color: #1a2332">
+                <tr>
+                  <th>From Device</th>
+                  <th>From Interface</th>
+                  <th style="width: 2rem; text-align: center">→</th>
+                  <th>To Device (CDP Neighbour)</th>
+                  <th>Neighbour Interface</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+            </table>
+            <div style="max-height: 390px; overflow-y: auto">
+              <table
+                class="table table-dark table-striped table-hover align-middle mb-0 small"
+                style="table-layout: fixed; width: 100%"
+              >
+                <colgroup>
+                  <col />
+                  <col />
+                  <col style="width: 2rem" />
+                  <col />
+                  <col />
+                  <col />
+                </colgroup>
+                <tbody id="link-tbody">
+                  <tr id="no-links-row">
+                    <td colspan="6" class="text-center text-muted py-4">
+                      No links configured — click <strong>Add Link</strong> in
+                      the toolbar.
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- CDP info card -->
+        <div class="card">
+          <div class="card-header fw-semibold">
+            <i class="bi bi-info-circle me-2"></i>CDP / CA Spectrum Notes
+          </div>
+          <div class="card-body small text-muted">
+            <ul class="mb-0">
+              <li>
+                Each link populates
+                <strong>CISCO-CDP-MIB cdpCacheTable</strong> on both Cisco
+                devices (routers &amp; switches only — Windows servers do not
+                run CDP).
+              </li>
+              <li>
+                OIDs pushed in real-time to running agents; links persist across
+                restarts.
+              </li>
+              <li>
+                CA Spectrum discovers neighbours via
+                <code>cdpCacheDeviceId</code>, <code>cdpCacheDevicePort</code>,
+                and <code>cdpCacheAddress</code>.
+              </li>
+              <li>
+                For root-cause analysis, ensure CA Spectrum is set to use CDP
+                topology discovery on the community <code>public</code>.
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <!-- /section-topology -->
+
+      <!-- ============================================================
+           CANVAS TAB
+           ============================================================ -->
+      <div id="section-canvas" class="d-none">
+        <div class="d-flex" style="height: calc(100vh - 88px); gap: 0.75rem">
+          <!-- Palette -->
+          <div
+            style="
+              width: 140px;
+              flex-shrink: 0;
+              background: #1a2332;
+              border: 1px solid #2d3748;
+              border-radius: 0.375rem;
+              padding: 0.75rem 0.5rem;
+            "
+          >
+            <p
+              class="text-muted small text-center mb-2"
+              style="font-size: 0.72rem"
+            >
+              DRAG TO CANVAS
+            </p>
+            <div
+              class="palette-node mb-2"
+              draggable="true"
+              ondragstart="paletteDragStart(event, 'cisco_router')"
+              title="Cisco Router"
+              style="
+                background: #7c3000;
+                border: 2px solid #e8580a;
+                border-radius: 0.375rem;
+                padding: 0.5rem;
+                cursor: grab;
+                text-align: center;
+                color: #fed7aa;
+                user-select: none;
+              "
+            >
+              <i class="bi bi-router" style="font-size: 1.4rem"></i>
+              <div style="font-size: 0.7rem; margin-top: 0.25rem">Router</div>
+            </div>
+            <div
+              class="palette-node mb-2"
+              draggable="true"
+              ondragstart="paletteDragStart(event, 'cisco_switch')"
+              title="Cisco Switch"
+              style="
+                background: #003070;
+                border: 2px solid #0a78e8;
+                border-radius: 0.375rem;
+                padding: 0.5rem;
+                cursor: grab;
+                text-align: center;
+                color: #bfdbfe;
+                user-select: none;
+              "
+            >
+              <i class="bi bi-diagram-2" style="font-size: 1.4rem"></i>
+              <div style="font-size: 0.7rem; margin-top: 0.25rem">Switch</div>
+            </div>
+            <div
+              class="palette-node mb-3"
+              draggable="true"
+              ondragstart="paletteDragStart(event, 'windows_server')"
+              title="Windows Server"
+              style="
+                background: #1e293b;
+                border: 2px solid #6b7280;
+                border-radius: 0.375rem;
+                padding: 0.5rem;
+                cursor: grab;
+                text-align: center;
+                color: #d1d5db;
+                user-select: none;
+              "
+            >
+              <i class="bi bi-server" style="font-size: 1.4rem"></i>
+              <div style="font-size: 0.7rem; margin-top: 0.25rem">Server</div>
+            </div>
+            <hr style="border-color: #2d3748" />
+            <p
+              class="text-muted text-center"
+              style="font-size: 0.65rem; line-height: 1.4"
+            >
+              Hold <kbd style="font-size: 0.6rem">Alt</kbd> and drag between
+              nodes to connect
+            </p>
+            <p
+              class="text-muted text-center"
+              style="font-size: 0.65rem; line-height: 1.4"
+            >
+              Click node / edge then <strong>Delete Selected</strong> to remove
+            </p>
+          </div>
+
+          <!-- Canvas -->
+          <div
+            id="vis-canvas"
+            style="
+              flex: 1;
+              background: #111827;
+              border: 1px solid #2d3748;
+              border-radius: 0.375rem;
+            "
+            ondragover="event.preventDefault()"
+            ondrop="canvasDrop(event)"
+          ></div>
+        </div>
+      </div>
+      <!-- /section-canvas -->
+
+      <!-- ============================================================
+           SERVER NETWORK TAB
+           ============================================================ -->
+      <div id="section-server" class="d-none">
+        <!-- Interface selector card -->
+        <div class="card mb-3">
+          <div class="card-header fw-semibold">
+            <i class="bi bi-ethernet me-2"></i>Active Network Interface
+          </div>
+          <div class="card-body">
+            <div class="row g-2 align-items-end">
+              <div class="col-auto">
+                <label class="form-label small mb-1">Interface</label>
+                <select
+                  class="form-select form-select-sm bg-dark text-white border-secondary"
+                  id="srv-iface-select"
+                  style="width: 180px"
+                >
+                  <option value="">Loading…</option>
+                </select>
+              </div>
+              <div class="col-auto">
+                <button
+                  class="btn btn-primary btn-sm"
+                  onclick="setServerIface()"
+                >
+                  <i class="bi bi-check-lg"></i> Apply
+                </button>
+              </div>
+              <div class="col-auto">
+                <span id="srv-iface-error" class="text-danger small"></span>
+                <span id="srv-iface-ok" class="text-success small"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card mb-3">
+          <div class="card-header d-flex align-items-center fw-semibold">
+            <i class="bi bi-hdd-network me-2"></i>
+            IP Addresses on
+            <code class="ms-1" id="srv-iface-label">enp7s0</code>
+            <button
+              class="btn btn-outline-light btn-sm ms-auto"
+              onclick="loadServerIps()"
+              title="Refresh"
+            >
+              <i class="bi bi-arrow-clockwise"></i> Refresh
+            </button>
+          </div>
+          <div class="card-body p-0">
+            <table
+              class="table table-dark table-hover mb-0 small"
+              style="table-layout: fixed; width: 100%"
+            >
+              <thead>
+                <tr>
+                  <th class="ps-3">IP Address / Prefix</th>
+                  <th style="width: 120px">Actions</th>
+                </tr>
+              </thead>
+            </table>
+            <div style="max-height: 390px; overflow-y: auto">
+              <table
+                class="table table-dark table-hover mb-0 small"
+                style="table-layout: fixed; width: 100%"
+              >
+                <colgroup>
+                  <col />
+                  <col style="width: 120px" />
+                </colgroup>
+                <tbody id="srv-ip-tbody">
+                  <tr>
+                    <td colspan="2" class="text-center text-muted py-4">
+                      Loading…
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Add IP card -->
+        <div class="card">
+          <div class="card-header fw-semibold">
+            <i class="bi bi-plus-circle me-2"></i>Add IP Address
+          </div>
+          <div class="card-body">
+            <!-- Single IP -->
+            <div class="row g-2 align-items-end mb-3">
+              <div class="col-auto">
+                <label class="form-label small mb-1">IP Address</label>
+                <input
+                  type="text"
+                  class="form-control form-control-sm bg-dark text-white border-secondary"
+                  id="srv-new-ip"
+                  placeholder="192.168.178.10"
+                  style="width: 175px"
+                />
+              </div>
+              <div class="col-auto">
+                <label class="form-label small mb-1">Prefix length</label>
+                <input
+                  type="number"
+                  class="form-control form-control-sm bg-dark text-white border-secondary"
+                  id="srv-new-prefix"
+                  value="24"
+                  min="1"
+                  max="32"
+                  style="width: 80px"
+                />
+              </div>
+              <div class="col-auto">
+                <button class="btn btn-primary btn-sm" onclick="addServerIp()">
+                  <i class="bi bi-plus-lg"></i> Add
+                </button>
+              </div>
+              <div class="col-auto">
+                <span id="srv-error" class="text-danger small"></span>
+              </div>
+            </div>
+
+            <hr class="border-secondary my-2" />
+
+            <!-- Bulk IP range -->
+            <p class="small text-muted mb-2">
+              <i class="bi bi-list-ol me-1"></i>Bulk Add Range
+            </p>
+            <div class="row g-2 align-items-end">
+              <div class="col-auto">
+                <label class="form-label small mb-1">Start IP</label>
+                <input
+                  type="text"
+                  class="form-control form-control-sm bg-dark text-white border-secondary"
+                  id="srv-range-start"
+                  placeholder="192.168.1.0"
+                  style="width: 160px"
+                />
+              </div>
+              <div class="col-auto align-self-end pb-1 text-muted">—</div>
+              <div class="col-auto">
+                <label class="form-label small mb-1">End IP</label>
+                <input
+                  type="text"
+                  class="form-control form-control-sm bg-dark text-white border-secondary"
+                  id="srv-range-end"
+                  placeholder="192.168.1.39"
+                  style="width: 160px"
+                />
+              </div>
+              <div class="col-auto">
+                <label class="form-label small mb-1">Prefix</label>
+                <input
+                  type="number"
+                  class="form-control form-control-sm bg-dark text-white border-secondary"
+                  id="srv-range-prefix"
+                  value="24"
+                  min="1"
+                  max="32"
+                  style="width: 80px"
+                />
+              </div>
+              <div class="col-auto">
+                <button
+                  class="btn btn-primary btn-sm"
+                  onclick="addServerIpRange()"
+                  id="srv-range-btn"
+                >
+                  <i class="bi bi-plus-lg"></i> Add Range
+                </button>
+              </div>
+              <div class="col-12">
+                <span id="srv-range-error" class="text-danger small"></span>
+                <span id="srv-range-ok" class="text-success small"></span>
+              </div>
+            </div>
+
+            <div class="form-text text-muted mt-2">
+              Addresses are added directly via
+              <code>ip addr add</code>. Already-assigned addresses are silently
+              skipped. Changes are not persistent across reboots.
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- /section-server -->
+
+      <!-- ============================================================
+           DISCOVERY TAB
+           ============================================================ -->
+      <div id="section-discovery" class="d-none">
+        <!-- Scan form card -->
+        <div class="card mb-3">
+          <div class="card-header fw-semibold">
+            <i class="bi bi-search me-2"></i>Scan Device via SNMP
+          </div>
+          <div class="card-body">
+            <div class="row g-3 align-items-end">
+              <div class="col-md-3">
+                <label class="form-label small mb-1"
+                  >Target IP <span class="text-danger">*</span></label
+                >
+                <input
+                  type="text"
+                  class="form-control form-control-sm bg-dark text-white border-secondary"
+                  id="disc-ip"
+                  placeholder="e.g. 192.168.1.1"
+                />
+              </div>
+              <div class="col-md-2">
+                <label class="form-label small mb-1">Community</label>
+                <input
+                  type="text"
+                  class="form-control form-control-sm bg-dark text-white border-secondary"
+                  id="disc-community"
+                  value="public"
+                />
+              </div>
+              <div class="col-md-1">
+                <label class="form-label small mb-1">Port</label>
+                <input
+                  type="number"
+                  class="form-control form-control-sm bg-dark text-white border-secondary"
+                  id="disc-port"
+                  value="161"
+                  min="1"
+                  max="65535"
+                />
+              </div>
+              <div class="col-md-2">
+                <label class="form-label small mb-1">SNMP Version</label>
+                <select
+                  class="form-select form-select-sm bg-dark text-white border-secondary"
+                  id="disc-version"
+                >
+                  <option value="v2c" selected>SNMPv2c</option>
+                  <option value="v1">SNMPv1</option>
+                </select>
+              </div>
+              <div class="col-md-1">
+                <label class="form-label small mb-1">Timeout (s)</label>
+                <input
+                  type="number"
+                  class="form-control form-control-sm bg-dark text-white border-secondary"
+                  id="disc-timeout"
+                  value="5"
+                  min="1"
+                  max="60"
+                />
+              </div>
+              <div class="col-md-1">
+                <label class="form-label small mb-1">Retries</label>
+                <input
+                  type="number"
+                  class="form-control form-control-sm bg-dark text-white border-secondary"
+                  id="disc-retries"
+                  value="2"
+                  min="0"
+                  max="10"
+                />
+              </div>
+              <div class="col-md-2 d-flex align-items-end gap-3">
+                <div class="form-check mb-1">
+                  <input
+                    class="form-check-input"
+                    type="checkbox"
+                    id="disc-bridge"
+                  />
+                  <label class="form-check-label small" for="disc-bridge"
+                    >BRIDGE-MIB</label
+                  >
+                </div>
+              </div>
+            </div>
+            <div class="mt-3 d-flex align-items-center gap-3">
+              <button
+                class="btn btn-primary btn-sm"
+                onclick="runDiscoveryScan()"
+                id="disc-scan-btn"
+              >
+                <i class="bi bi-search"></i> Scan
+              </button>
+              <span id="disc-progress" class="text-muted small"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Results card (hidden until scan completes) -->
+        <div class="card mb-3 d-none" id="disc-results-card">
+          <div class="card-header d-flex align-items-center fw-semibold">
+            <i class="bi bi-clipboard-data me-2"></i>Discovery Results
+            <div class="ms-auto d-flex gap-2">
+              <button
+                class="btn btn-outline-success btn-sm"
+                onclick="saveDiscoveryProfile()"
+              >
+                <i class="bi bi-floppy"></i> Save Profile…
+              </button>
+              <button
+                class="btn btn-outline-primary btn-sm"
+                onclick="createDeviceFromDiscovery()"
+              >
+                <i class="bi bi-plus-circle"></i> Create Device…
+              </button>
+            </div>
+          </div>
+          <div class="card-body p-0">
+            <ul class="nav nav-tabs px-3 pt-2" id="disc-tabs" role="tablist">
+              <li class="nav-item">
+                <a
+                  class="nav-link active"
+                  id="dtab-system-tab"
+                  data-bs-toggle="tab"
+                  href="#dtab-system"
+                  >System</a
+                >
+              </li>
+              <li class="nav-item">
+                <a
+                  class="nav-link"
+                  id="dtab-ifc-tab"
+                  data-bs-toggle="tab"
+                  href="#dtab-ifc"
+                  >Interfaces</a
+                >
+              </li>
+              <li class="nav-item">
+                <a
+                  class="nav-link"
+                  id="dtab-cdp-tab"
+                  data-bs-toggle="tab"
+                  href="#dtab-cdp"
+                  >CDP</a
+                >
+              </li>
+              <li class="nav-item">
+                <a
+                  class="nav-link"
+                  id="dtab-lldp-tab"
+                  data-bs-toggle="tab"
+                  href="#dtab-lldp"
+                  >LLDP</a
+                >
+              </li>
+              <li class="nav-item d-none" id="dtab-bridge-li">
+                <a
+                  class="nav-link"
+                  id="dtab-bridge-tab"
+                  data-bs-toggle="tab"
+                  href="#dtab-bridge"
+                  >Bridge</a
+                >
+              </li>
+              <li class="nav-item">
+                <a
+                  class="nav-link"
+                  id="dtab-raw-tab"
+                  data-bs-toggle="tab"
+                  href="#dtab-raw"
+                  >Raw OIDs
+                  <span class="badge bg-secondary ms-1" id="disc-oid-count"
+                    >0</span
+                  ></a
+                >
+              </li>
+            </ul>
+            <div class="tab-content p-3" id="disc-tab-content">
+              <!-- System tab -->
+              <div class="tab-pane fade show active" id="dtab-system">
+                <table class="table table-dark table-sm small mb-0">
+                  <tbody id="disc-sys-tbody"></tbody>
+                </table>
+              </div>
+
+              <!-- Interfaces tab -->
+              <div class="tab-pane fade" id="dtab-ifc">
+                <table
+                  class="table table-dark table-striped table-sm small mb-0"
+                >
+                  <thead>
+                    <tr>
+                      <th>Index</th>
+                      <th>Name</th>
+                      <th>Type</th>
+                      <th>Speed</th>
+                      <th>Admin</th>
+                      <th>Oper</th>
+                      <th>Alias</th>
+                    </tr>
+                  </thead>
+                  <tbody id="disc-ifc-tbody"></tbody>
+                </table>
+              </div>
+
+              <!-- CDP tab -->
+              <div class="tab-pane fade" id="dtab-cdp">
+                <table
+                  class="table table-dark table-striped table-sm small mb-0"
+                >
+                  <thead>
+                    <tr>
+                      <th>Remote Device</th>
+                      <th>Remote IP</th>
+                      <th>Platform</th>
+                      <th>Remote Port</th>
+                      <th>SW Version</th>
+                    </tr>
+                  </thead>
+                  <tbody id="disc-cdp-tbody"></tbody>
+                </table>
+              </div>
+
+              <!-- LLDP tab -->
+              <div class="tab-pane fade" id="dtab-lldp">
+                <table
+                  class="table table-dark table-striped table-sm small mb-0"
+                >
+                  <thead>
+                    <tr>
+                      <th>Chassis ID</th>
+                      <th>Sys Name</th>
+                      <th>Port ID</th>
+                      <th>Port Desc</th>
+                      <th>Sys Desc</th>
+                    </tr>
+                  </thead>
+                  <tbody id="disc-lldp-tbody"></tbody>
+                </table>
+              </div>
+
+              <!-- Bridge tab -->
+              <div class="tab-pane fade" id="dtab-bridge">
+                <table class="table table-dark table-sm small mb-0">
+                  <tbody id="disc-bridge-tbody"></tbody>
+                </table>
+              </div>
+
+              <!-- Raw OIDs tab -->
+              <div class="tab-pane fade" id="dtab-raw">
+                <div class="mb-2">
+                  <input
+                    type="text"
+                    class="form-control form-control-sm bg-dark text-white border-secondary"
+                    id="disc-raw-filter"
+                    placeholder="Filter OIDs…"
+                    oninput="filterRawOids(this.value)"
+                    style="max-width: 340px"
+                  />
+                </div>
+                <div style="max-height: 400px; overflow-y: auto">
+                  <table
+                    class="table table-dark table-striped table-sm small mb-0 font-monospace"
+                  >
+                    <thead>
+                      <tr>
+                        <th>OID</th>
+                        <th>Value</th>
+                      </tr>
+                    </thead>
+                    <tbody id="disc-raw-tbody"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Saved Discovery Profiles -->
+        <div class="card">
+          <div class="card-header d-flex align-items-center fw-semibold">
+            <i class="bi bi-collection me-2"></i>Saved Discovery Profiles
+            <button
+              class="btn btn-outline-light btn-sm ms-auto"
+              onclick="loadDiscoveryProfiles()"
+            >
+              <i class="bi bi-arrow-clockwise"></i> Refresh
+            </button>
+          </div>
+          <div class="card-body p-0">
+            <table
+              class="table table-dark table-hover table-sm small mb-0"
+              style="table-layout: fixed; width: 100%"
+            >
+              <thead>
+                <tr>
+                  <th class="ps-3">Name</th>
+                  <th>Target IP</th>
+                  <th>Scanned</th>
+                  <th>Interfaces</th>
+                  <th>OIDs</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+            </table>
+            <div style="max-height: 390px; overflow-y: auto">
+              <table
+                class="table table-dark table-hover table-sm small mb-0"
+                style="table-layout: fixed; width: 100%"
+              >
+                <colgroup>
+                  <col />
+                  <col />
+                  <col />
+                  <col />
+                  <col />
+                  <col />
+                </colgroup>
+                <tbody id="disc-profiles-tbody">
+                  <tr>
+                    <td colspan="6" class="text-center text-muted py-4">
+                      No profiles saved yet — run a scan first.
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- /section-discovery -->
+    </div>
+    <!-- /container -->
+
+    <!-- ================================================================
+     Add Canvas Node Modal
+     ================================================================ -->
+    <div class="modal fade" id="addNodeModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">
+              <i class="bi bi-plus-circle me-2"></i>Add Device to Canvas
+            </h5>
+            <button
+              type="button"
+              class="btn-close"
+              data-bs-dismiss="modal"
+            ></button>
+          </div>
+          <div class="modal-body">
+            <input type="hidden" id="cn-type" />
+            <div class="mb-3">
+              <span class="badge" id="cn-type-label" style="font-size: 0.8rem"
+                >Router</span
+              >
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold"
+                >Device Name <span class="text-danger">*</span></label
+              >
+              <input
+                type="text"
+                class="form-control"
+                id="cn-name"
+                placeholder="e.g. R1"
+              />
+            </div>
+            <div class="mb-2">
+              <label class="form-label fw-semibold"
+                >IP Address <span class="text-danger">*</span></label
+              >
+              <input
+                type="text"
+                class="form-control font-monospace"
+                id="cn-ip"
+              />
+            </div>
+            <div id="cn-error" class="text-danger small mt-1"></div>
+          </div>
+          <div class="modal-footer">
+            <button
+              type="button"
+              class="btn btn-secondary"
+              data-bs-dismiss="modal"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              class="btn btn-primary"
+              onclick="saveCanvasNode()"
+            >
+              Add
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================================================================
+     Canvas Link Interfaces Modal
+     ================================================================ -->
+    <div
+      class="modal fade"
+      id="canvasLinkModal"
+      tabindex="-1"
+      aria-hidden="true"
+    >
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">
+              <i class="bi bi-plug-fill me-2"></i>Select Interfaces
+            </h5>
+            <button
+              type="button"
+              class="btn-close"
+              onclick="cancelLinkIfc()"
+              data-bs-dismiss="modal"
+            ></button>
+          </div>
+          <div class="modal-body">
+            <p class="text-muted small">
+              Choose which interface on each device this cable connects to.
+            </p>
+            <div class="row g-3">
+              <div class="col-6">
+                <label class="form-label fw-semibold"
+                  ><span id="lim-dev-a-name" class="text-info"></span
+                ></label>
+                <select class="form-select" id="lim-ifc-a"></select>
+              </div>
+              <div class="col-6">
+                <label class="form-label fw-semibold"
+                  ><span id="lim-dev-b-name" class="text-info"></span
+                ></label>
+                <select class="form-select" id="lim-ifc-b"></select>
+              </div>
+            </div>
+            <div id="lim-error" class="text-danger small mt-2"></div>
+          </div>
+          <div class="modal-footer">
+            <button
+              type="button"
+              class="btn btn-secondary"
+              onclick="cancelLinkIfc()"
+              data-bs-dismiss="modal"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              class="btn btn-primary"
+              onclick="saveLinkIfc()"
+            >
+              Connect
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================================================================
+     Add Link Modal
+     ================================================================ -->
+    <div class="modal fade" id="addLinkModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">
+              <i class="bi bi-plug-fill me-2"></i>Add Interface Link
+            </h5>
+            <button
+              type="button"
+              class="btn-close"
+              data-bs-dismiss="modal"
+            ></button>
+          </div>
+          <div class="modal-body">
+            <p class="text-muted small">
+              Connect one interface on Device A to one interface on Device B.
+              CDP neighbour OIDs will be pushed to both devices immediately.
+            </p>
+            <div class="row g-3">
+              <div class="col-6">
+                <label class="form-label fw-semibold"
+                  >Device A <span class="text-danger">*</span></label
+                >
+                <select
+                  class="form-select"
+                  id="link-dev-a"
+                  onchange="loadLinkIfcs('a')"
+                ></select>
+              </div>
+              <div class="col-6">
+                <label class="form-label fw-semibold"
+                  >Interface A <span class="text-danger">*</span></label
+                >
+                <select class="form-select" id="link-ifc-a"></select>
+              </div>
+              <div class="col-6">
+                <label class="form-label fw-semibold"
+                  >Device B <span class="text-danger">*</span></label
+                >
+                <select
+                  class="form-select"
+                  id="link-dev-b"
+                  onchange="loadLinkIfcs('b')"
+                ></select>
+              </div>
+              <div class="col-6">
+                <label class="form-label fw-semibold"
+                  >Interface B <span class="text-danger">*</span></label
+                >
+                <select class="form-select" id="link-ifc-b"></select>
+              </div>
+            </div>
+            <div id="link-error" class="text-danger small mt-2"></div>
+          </div>
+          <div class="modal-footer">
+            <button
+              type="button"
+              class="btn btn-secondary"
+              data-bs-dismiss="modal"
+            >
+              Cancel
+            </button>
+            <button type="button" class="btn btn-primary" onclick="saveLink()">
+              <i class="bi bi-plug-fill"></i> Connect
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================================================================
+     Add / Edit Device Modal
+     ================================================================ -->
+    <div
+      class="modal fade"
+      id="deviceModal"
+      tabindex="-1"
+      aria-labelledby="deviceModalTitle"
+      aria-hidden="true"
+    >
+      <div class="modal-dialog modal-dialog-scrollable">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="deviceModalTitle">Add Device</h5>
+            <button
+              type="button"
+              class="btn-close"
+              data-bs-dismiss="modal"
+            ></button>
+          </div>
+          <div class="modal-body">
+            <input type="hidden" id="edit-id" />
+
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Device Type</label>
+              <select class="form-select" id="f-type">
+                <option value="cisco_router">Cisco Router</option>
+                <option value="cisco_switch">Cisco Switch</option>
+                <option value="windows_server">Windows Server</option>
+              </select>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label fw-semibold"
+                >Device Name <span class="text-danger">*</span></label
+              >
+              <input
+                type="text"
+                class="form-control"
+                id="f-name"
+                placeholder="e.g. router-01"
+              />
+            </div>
+
+            <div class="row mb-3">
+              <div class="col-8">
+                <label class="form-label fw-semibold"
+                  >IP Address <span class="text-danger">*</span></label
+                >
+                <input
+                  type="text"
+                  class="form-control font-monospace"
+                  id="f-ip"
+                  placeholder="e.g. 127.0.0.10"
+                />
+              </div>
+              <div class="col-4">
+                <label class="form-label fw-semibold">SNMP Port</label>
+                <input
+                  type="number"
+                  class="form-control"
+                  id="f-port"
+                  value="161"
+                  min="1"
+                  max="65535"
+                />
+              </div>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Community String</label>
+              <input
+                type="text"
+                class="form-control"
+                id="f-community"
+                value="public"
+              />
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label fw-semibold"># Interfaces</label>
+              <input
+                type="number"
+                class="form-control"
+                id="f-ifc"
+                value="4"
+                min="1"
+                max="48"
+              />
+            </div>
+
+            <div class="row mb-3">
+              <div class="col-6">
+                <label class="form-label fw-semibold">CPU Min %</label>
+                <input
+                  type="number"
+                  class="form-control"
+                  id="f-cpu-min"
+                  value="5"
+                  min="0"
+                  max="99"
+                />
+              </div>
+              <div class="col-6">
+                <label class="form-label fw-semibold">CPU Max %</label>
+                <input
+                  type="number"
+                  class="form-control"
+                  id="f-cpu-max"
+                  value="75"
+                  min="1"
+                  max="100"
+                />
+              </div>
+            </div>
+
+            <hr class="border-secondary" />
+            <p class="text-muted small mb-3">
+              <i class="bi bi-send"></i> SNMP Trap Settings
+            </p>
+
+            <div class="row mb-3">
+              <div class="col-8">
+                <label class="form-label fw-semibold"
+                  >Trap Destination IP</label
+                >
+                <input
+                  type="text"
+                  class="form-control font-monospace"
+                  id="f-trap-dest"
+                  placeholder="e.g. 192.168.1.100"
+                />
+              </div>
+              <div class="col-4">
+                <label class="form-label fw-semibold">Trap Port</label>
+                <input
+                  type="number"
+                  class="form-control"
+                  id="f-trap-port"
+                  value="162"
+                  min="1"
+                  max="65535"
+                />
+              </div>
+            </div>
+
+            <div class="mb-2">
+              <label class="form-label fw-semibold">Trap Community</label>
+              <input
+                type="text"
+                class="form-control"
+                id="f-trap-community"
+                value="public"
+              />
+            </div>
+          </div>
+          <div class="modal-footer">
+            <div id="modal-error" class="text-danger small me-auto"></div>
+            <button
+              type="button"
+              class="btn btn-secondary"
+              data-bs-dismiss="modal"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              class="btn btn-primary"
+              onclick="saveDevice()"
+            >
+              <i class="bi bi-save"></i> Save
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================================================================
+     Save Profile Modal
+     ================================================================ -->
+    <div
+      class="modal fade"
+      id="saveProfileModal"
+      tabindex="-1"
+      aria-hidden="true"
+    >
+      <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">
+              <i class="bi bi-floppy me-2"></i>Save Configuration
+            </h5>
+            <button
+              type="button"
+              class="btn-close"
+              data-bs-dismiss="modal"
+            ></button>
+          </div>
+          <div class="modal-body">
+            <label class="form-label fw-semibold"
+              >Configuration Name <span class="text-danger">*</span></label
+            >
+            <input
+              type="text"
+              class="form-control"
+              id="profile-name-input"
+              placeholder="e.g. lab-setup, demo-cisco"
+              maxlength="64"
+            />
+            <div class="form-text">
+              Letters, numbers, dashes and spaces allowed.
+            </div>
+            <div id="save-profile-error" class="text-danger small mt-1"></div>
+          </div>
+          <div class="modal-footer">
+            <button
+              type="button"
+              class="btn btn-secondary"
+              data-bs-dismiss="modal"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              class="btn btn-primary"
+              onclick="saveProfile()"
+            >
+              <i class="bi bi-floppy"></i> Save
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================================================================
+     Interface Modal
+     ================================================================ -->
+    <div class="modal fade" id="ifcModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">
+              <i class="bi bi-hdd-network me-2"></i>Interfaces —
+              <span id="ifc-device-name" class="text-info"></span>
+            </h5>
+            <button
+              type="button"
+              class="btn-close"
+              data-bs-dismiss="modal"
+            ></button>
+          </div>
+          <div class="modal-body" id="ifc-list">
+            <!-- populated by JS -->
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================================================================
+     Scripts
+     ================================================================ -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vis-network@9.1.9/dist/vis-network.min.js"></script>
+    <script>
+      // ------------------------------------------------------------------ //
+      //  Bootstrap modal instances
+      // ------------------------------------------------------------------ //
+      const deviceModal = new bootstrap.Modal(
+        document.getElementById("deviceModal"),
+      );
+      const ifcModal = new bootstrap.Modal(document.getElementById("ifcModal"));
+      const saveProfileModal = new bootstrap.Modal(
+        document.getElementById("saveProfileModal"),
+      );
+      const addLinkModal = new bootstrap.Modal(
+        document.getElementById("addLinkModal"),
+      );
+      const addNodeModal = new bootstrap.Modal(
+        document.getElementById("addNodeModal"),
+      );
+      const canvasLinkModal = new bootstrap.Modal(
+        document.getElementById("canvasLinkModal"),
+        { backdrop: "static" },
+      );
+
+      let _editingId = null;
+      let _currentIfcDeviceId = null;
+
+      // ------------------------------------------------------------------ //
+      //  Socket.IO
+      // ------------------------------------------------------------------ //
+      const socket = io();
+
+      socket.on("connect", () => console.log("SocketIO connected"));
+      socket.on("disconnect", () => console.log("SocketIO disconnected"));
+
+      socket.on("trap", function (d) {
+        const log = document.getElementById("trap-log");
+        const ts = new Date().toLocaleTimeString();
+        const colorMap = {
+          linkDown: "trap-linkdown",
+          linkUp: "trap-linkup",
+          cpuHigh: "trap-cpuhigh",
+        };
+        const cls = colorMap[d.type] || "text-secondary";
+        const ifcInfo = d.ifc != null ? `  ifc=${d.ifc}` : "";
+
+        // Remove placeholder line
+        const ph = log.querySelector(".text-muted");
+        if (ph) ph.remove();
+
+        const li = document.createElement("li");
+        li.className = cls;
+        li.textContent = `[${ts}]  ${d.type.padEnd(10)}  ${d.device}${ifcInfo}`;
+        log.appendChild(li);
+        log.scrollTop = log.scrollHeight;
+
+        while (log.children.length > 200) log.removeChild(log.firstChild);
+      });
+
+      socket.on("status_change", function (d) {
+        const row = document.querySelector(`tr[data-id="${d.id}"]`);
+        if (!row) return;
+        const badge = row.querySelector(".status-badge");
+        if (!badge) return;
+        const map = {
+          running: ["bg-success", "Running"],
+          stopped: ["bg-secondary", "Stopped"],
+          error: ["bg-danger", "Error"],
+        };
+        const [cls, label] = map[d.status] || ["bg-secondary", d.status];
+        badge.className = `badge status-badge ${cls}`;
+        badge.textContent = label;
+        const startBtn = row.querySelector(".btn-start");
+        const stopBtn = row.querySelector(".btn-stop");
+        if (startBtn) startBtn.disabled = d.status === "running";
+        if (stopBtn) stopBtn.disabled = d.status !== "running";
+      });
+
+      socket.on("device_updates", function (updates) {
+        updates.forEach(function (d) {
+          const row = document.querySelector(`tr[data-id="${d.id}"]`);
+          if (!row) return;
+          const cpuCell = row.querySelector(".cpu-cell");
+          const ifcCell = row.querySelector(".ifc-cell");
+          if (cpuCell) cpuCell.textContent = d.cpu_percent + "%";
+          if (ifcCell) ifcCell.textContent = d.ifc_up + " / " + d.ifc_dn;
+          const badge = row.querySelector(".status-badge");
+          if (badge) {
+            badge.className =
+              "badge status-badge " +
+              (d.running ? "bg-success" : "bg-secondary");
+            badge.textContent = d.running ? "Running" : "Stopped";
+          }
+          // Update button enabled state
+          const startBtn = row.querySelector(".btn-start");
+          const stopBtn = row.querySelector(".btn-stop");
+          if (startBtn) startBtn.disabled = d.running;
+          if (stopBtn) stopBtn.disabled = !d.running;
+        });
+        document.getElementById("device-count").textContent = updates.length;
+      });
+
+      // ------------------------------------------------------------------ //
+      //  Device Table Rendering
+      // ------------------------------------------------------------------ //
+      function renderDevices(devices) {
+        const tbody = document.getElementById("device-tbody");
+        tbody.innerHTML = "";
+        document.getElementById("device-count").textContent = devices.length;
+
+        if (devices.length === 0) {
+          tbody.innerHTML = `<tr id="no-devices-row">
+            <td colspan="7" class="text-center text-muted py-5">
+                No devices configured — click <strong>Add Device</strong> to get started.
+            </td></tr>`;
+          return;
+        }
+
+        devices.forEach(function (d) {
+          const running = d.running;
+          const statusCls = running ? "bg-success" : "bg-secondary";
+          const statusTxt = running ? "Running" : "Stopped";
+          const row = document.createElement("tr");
+          row.setAttribute("data-id", d.id);
+          row.innerHTML = `
+            <td class="fw-semibold">${esc(d.name)}</td>
+            <td class="font-monospace small">${esc(d.ip)}:${d.port}</td>
+            <td>${esc(d.device_type_label)}</td>
+            <td><span class="badge status-badge ${statusCls}">${statusTxt}</span></td>
+            <td class="cpu-cell">${d.cpu_percent}%</td>
+            <td class="ifc-cell">${d.ifc_up} / ${d.ifc_dn}</td>
+            <td>
+                <div class="btn-group btn-group-sm">
+                    <button class="btn btn-success btn-start"
+                            onclick="startDevice('${d.id}')"
+                            ${running ? "disabled" : ""}
+                            title="Start agent">
+                        <i class="bi bi-play-fill"></i>
+                    </button>
+                    <button class="btn btn-danger btn-stop"
+                            onclick="stopDevice('${d.id}')"
+                            ${!running ? "disabled" : ""}
+                            title="Stop agent">
+                        <i class="bi bi-stop-fill"></i>
+                    </button>
+                    <button class="btn btn-info btn-sm"
+                            onclick="openIfcModal('${d.id}')"
+                            title="Manage interfaces">
+                        <i class="bi bi-hdd-network"></i>
+                    </button>
+                    <button class="btn btn-secondary"
+                            onclick="openEditModal('${d.id}')"
+                            title="Edit device">
+                        <i class="bi bi-pencil"></i>
+                    </button>
+                    <button class="btn btn-outline-danger"
+                            onclick="deleteDevice('${d.id}')"
+                            title="Delete device">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </div>
+            </td>`;
+          tbody.appendChild(row);
+        });
+      }
+
+      function loadDevices() {
+        fetch("/api/devices")
+          .then((r) => r.json())
+          .then(renderDevices)
+          .catch((err) => console.error("Failed to load devices:", err));
+      }
+
+      // ------------------------------------------------------------------ //
+      //  Add / Edit
+      // ------------------------------------------------------------------ //
+      function _resetForm() {
+        document.getElementById("f-type").value = "cisco_router";
+        document.getElementById("f-name").value = "";
+        document.getElementById("f-ip").value = "";
+        document.getElementById("f-port").value = 161;
+        document.getElementById("f-community").value = "public";
+        document.getElementById("f-ifc").value = 4;
+        document.getElementById("f-cpu-min").value = 5;
+        document.getElementById("f-cpu-max").value = 75;
+        document.getElementById("f-trap-dest").value = "";
+        document.getElementById("f-trap-port").value = 162;
+        document.getElementById("f-trap-community").value = "public";
+        document.getElementById("modal-error").textContent = "";
+      }
+
+      function openAddModal() {
+        _editingId = null;
+        _discExtraOids = null;
+        _discIfcNames = null;
+        document.getElementById("deviceModalTitle").textContent = "Add Device";
+        document.getElementById("edit-id").value = "";
+        _resetForm();
+        deviceModal.show();
+      }
+
+      function openEditModal(id) {
+        fetch(`/api/devices/${id}`)
+          .then((r) => r.json())
+          .then(function (d) {
+            _editingId = id;
+            document.getElementById("deviceModalTitle").textContent =
+              "Edit Device";
+            document.getElementById("edit-id").value = d.id;
+            document.getElementById("f-type").value = d.device_type;
+            document.getElementById("f-name").value = d.name;
+            document.getElementById("f-ip").value = d.ip;
+            document.getElementById("f-port").value = d.port;
+            document.getElementById("f-community").value = d.community;
+            document.getElementById("f-ifc").value = d.num_interfaces;
+            document.getElementById("f-cpu-min").value = d.cpu_min;
+            document.getElementById("f-cpu-max").value = d.cpu_max;
+            document.getElementById("f-trap-dest").value = d.trap_destination;
+            document.getElementById("f-trap-port").value = d.trap_port;
+            document.getElementById("f-trap-community").value =
+              d.trap_community;
+            document.getElementById("modal-error").textContent = "";
+            deviceModal.show();
+          })
+          .catch((e) => alert("Error loading device: " + e));
+      }
+
+      // Track extra OIDs / ifc names from discovery (set by createDeviceFromDiscovery)
+      let _discExtraOids = null;
+      let _discIfcNames = null;
+
+      function saveDevice() {
+        const errEl = document.getElementById("modal-error");
+        errEl.textContent = "";
+
+        const body = {
+          device_type: document.getElementById("f-type").value,
+          name: document.getElementById("f-name").value.trim(),
+          ip: document.getElementById("f-ip").value.trim(),
+          port: parseInt(document.getElementById("f-port").value),
+          community: document.getElementById("f-community").value.trim(),
+          num_interfaces: parseInt(document.getElementById("f-ifc").value),
+          cpu_min: parseInt(document.getElementById("f-cpu-min").value),
+          cpu_max: parseInt(document.getElementById("f-cpu-max").value),
+          trap_destination: document.getElementById("f-trap-dest").value.trim(),
+          trap_port: parseInt(document.getElementById("f-trap-port").value),
+          trap_community: document
+            .getElementById("f-trap-community")
+            .value.trim(),
+        };
+
+        // Attach discovery data if this is a new device created from a scan
+        const isEdit = !!_editingId;
+        if (!isEdit && _discExtraOids) {
+          body.extra_oids = _discExtraOids;
+          if (_discIfcNames && _discIfcNames.length)
+            body.ifc_names = _discIfcNames;
+        }
+
+        if (!body.name) {
+          errEl.textContent = "Device name is required.";
+          return;
+        }
+        if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(body.ip)) {
+          errEl.textContent = "Invalid IP address.";
+          return;
+        }
+        if (body.cpu_min >= body.cpu_max) {
+          errEl.textContent = "CPU min must be less than CPU max.";
+          return;
+        }
+
+        const url = isEdit ? `/api/devices/${_editingId}` : "/api/devices";
+        const method = isEdit ? "PUT" : "POST";
+
+        fetch(url, {
+          method,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        })
+          .then((r) => r.json())
+          .then(function (data) {
+            if (data.error) {
+              errEl.textContent = "Error: " + data.error;
+              return;
+            }
+            deviceModal.hide();
+            _discExtraOids = null;
+            _discIfcNames = null;
+            loadDevices();
+          })
+          .catch((e) => {
+            errEl.textContent = "Request failed: " + e;
+          });
+      }
+
+      // ------------------------------------------------------------------ //
+      //  Delete
+      // ------------------------------------------------------------------ //
+      function deleteDevice(id) {
+        if (!confirm("Delete this device?")) return;
+        fetch(`/api/devices/${id}`, { method: "DELETE" })
+          .then(() => loadDevices())
+          .catch((e) => alert("Error: " + e));
+      }
+
+      // ------------------------------------------------------------------ //
+      //  Start / Stop
+      // ------------------------------------------------------------------ //
+      function startDevice(id) {
+        fetch(`/api/devices/${id}/start`, { method: "POST" })
+          .then((r) => r.json())
+          .then((d) => {
+            if (!d.ok) alert("Failed to start device. Check server logs.");
+          })
+          .catch((e) => alert("Error: " + e));
+      }
+
+      function stopDevice(id) {
+        fetch(`/api/devices/${id}/stop`, { method: "POST" }).catch((e) =>
+          alert("Error: " + e),
+        );
+      }
+
+      function startAll() {
+        fetch("/api/devices/start_all", { method: "POST" }).catch((e) =>
+          alert("Error: " + e),
+        );
+      }
+
+      function stopAll() {
+        fetch("/api/devices/stop_all", { method: "POST" }).catch((e) =>
+          alert("Error: " + e),
+        );
+      }
+
+      // ------------------------------------------------------------------ //
+      //  Interface Modal
+      // ------------------------------------------------------------------ //
+      function openIfcModal(id) {
+        _currentIfcDeviceId = id;
+        fetch(`/api/devices/${id}`)
+          .then((r) => r.json())
+          .then(function (d) {
+            document.getElementById("ifc-device-name").textContent = d.name;
+            const list = document.getElementById("ifc-list");
+            list.innerHTML = "";
+
+            if (!d.interfaces.length) {
+              list.innerHTML = '<p class="text-muted">No interfaces.</p>';
+            } else {
+              d.interfaces.forEach(function (ifc) {
+                const up = ifc.oper_status === 1;
+                const div = document.createElement("div");
+                div.className =
+                  "d-flex justify-content-between align-items-center py-2 border-bottom border-secondary";
+                div.innerHTML = `
+                        <div>
+                            <span class="font-monospace fw-semibold">${esc(ifc.name)}</span>
+                            <span class="badge ms-2 ${up ? "bg-success" : "bg-danger"}">${up ? "Up" : "Down"}</span>
+                        </div>
+                        <button class="btn btn-sm ${up ? "btn-outline-danger" : "btn-outline-success"}"
+                                onclick="toggleIfc('${id}', ${ifc.index})">
+                            ${
+                              up
+                                ? '<i class="bi bi-arrow-down-circle"></i> Set Down'
+                                : '<i class="bi bi-arrow-up-circle"></i> Set Up'
+                            }
+                        </button>`;
+                list.appendChild(div);
+              });
+            }
+            ifcModal.show();
+          })
+          .catch((e) => alert("Error loading interfaces: " + e));
+      }
+
+      function toggleIfc(id, ifcIndex) {
+        fetch(`/api/devices/${id}/toggle_ifc`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ifc_index: ifcIndex }),
+        })
+          .then(() => openIfcModal(id)) // refresh the modal
+          .catch((e) => alert("Error: " + e));
+      }
+
+      // ------------------------------------------------------------------ //
+      //  Trap Log
+      // ------------------------------------------------------------------ //
+      function clearLog() {
+        document.getElementById("trap-log").innerHTML =
+          '<li class="text-muted">— log cleared —</li>';
+      }
+
+      // ------------------------------------------------------------------ //
+      //  Utility
+      // ------------------------------------------------------------------ //
+      function esc(str) {
+        return String(str)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
+      }
+
+      // ------------------------------------------------------------------ //
+      //  Tab switching
+      // ------------------------------------------------------------------ //
+      function showTab(name) {
+        ["devices", "topology", "canvas", "server", "discovery"].forEach(
+          function (t) {
+            document
+              .getElementById("section-" + t)
+              .classList.toggle("d-none", name !== t);
+            document
+              .getElementById("tab-" + t)
+              .classList.toggle("active", name === t);
+          },
+        );
+        // Devices-only toolbar buttons
+        ["btn-add-device", "btn-start-all", "btn-stop-all"].forEach(
+          function (id) {
+            document
+              .getElementById(id)
+              .classList.toggle("d-none", name !== "devices");
+          },
+        );
+        document
+          .getElementById("btn-add-link")
+          .classList.toggle("d-none", name !== "topology");
+        document
+          .getElementById("btn-canvas-delete")
+          .classList.toggle("d-none", name !== "canvas");
+        if (name === "topology") loadLinks();
+        if (name === "canvas") initCanvas();
+        if (name === "server") {
+          loadServerInterfaces();
+          loadServerIps();
+        }
+        if (name === "discovery") loadDiscoveryProfiles();
+      }
+
+      // ------------------------------------------------------------------ //
+      //  Topology / Links
+      // ------------------------------------------------------------------ //
+      function loadLinks() {
+        fetch("/api/links")
+          .then((r) => r.json())
+          .then(function (links) {
+            const tbody = document.getElementById("link-tbody");
+            tbody.innerHTML = "";
+            if (links.length === 0) {
+              tbody.innerHTML = `<tr id="no-links-row"><td colspan="6" class="text-center text-muted py-4">
+                No links configured — click <strong>Add Link</strong> in the toolbar.</td></tr>`;
+              return;
+            }
+            links.forEach(function (lnk) {
+              // Render TWO rows — one for each direction (both devices see the other as CDP neighbour)
+              const directions = [
+                {
+                  src_name: lnk.device_a_name,
+                  src_ifc: lnk.ifc_a_name,
+                  dst_name: lnk.device_b_name,
+                  dst_ifc: lnk.ifc_b_name,
+                },
+                {
+                  src_name: lnk.device_b_name,
+                  src_ifc: lnk.ifc_b_name,
+                  dst_name: lnk.device_a_name,
+                  dst_ifc: lnk.ifc_a_name,
+                },
+              ];
+              directions.forEach(function (dir, idx) {
+                const tr = document.createElement("tr");
+                // Only show the delete button on the first row to avoid duplicate deletes
+                const deleteCell =
+                  idx === 0
+                    ? `<button class="btn btn-outline-danger btn-sm" onclick="deleteLink('${esc(lnk.id)}')" title="Remove link">
+                       <i class="bi bi-trash"></i>
+                     </button>`
+                    : `<span class="text-muted small">↑ same link</span>`;
+                tr.innerHTML = `
+                  <td class="fw-semibold">${esc(dir.src_name)}</td>
+                  <td><code>${esc(dir.src_ifc)}</code></td>
+                  <td class="text-center text-muted">→</td>
+                  <td class="fw-semibold">${esc(dir.dst_name)}</td>
+                  <td><code>${esc(dir.dst_ifc)}</code></td>
+                  <td>${deleteCell}</td>`;
+                tbody.appendChild(tr);
+              });
+            });
+          })
+          .catch((err) => console.error("loadLinks error:", err));
+      }
+
+      function openAddLinkModal() {
+        document.getElementById("link-error").textContent = "";
+        // Populate device dropdowns
+        fetch("/api/devices")
+          .then((r) => r.json())
+          .then(function (devices) {
+            ["link-dev-a", "link-dev-b"].forEach(function (id) {
+              const sel = document.getElementById(id);
+              sel.innerHTML = '<option value="">— select device —</option>';
+              devices.forEach(function (d) {
+                const opt = document.createElement("option");
+                opt.value = d.id;
+                opt.textContent = d.name + " (" + d.device_type_label + ")";
+                sel.appendChild(opt);
+              });
+            });
+            document.getElementById("link-ifc-a").innerHTML =
+              "<option>— select device first —</option>";
+            document.getElementById("link-ifc-b").innerHTML =
+              "<option>— select device first —</option>";
+          });
+        addLinkModal.show();
+      }
+
+      function loadLinkIfcs(side) {
+        const devId = document.getElementById("link-dev-" + side).value;
+        const ifcSel = document.getElementById("link-ifc-" + side);
+        if (!devId) {
+          ifcSel.innerHTML = "<option>— select device first —</option>";
+          return;
+        }
+        Promise.all([
+          fetch("/api/devices/" + devId).then((r) => r.json()),
+          fetch("/api/links").then((r) => r.json()),
+        ]).then(function ([d, allLinks]) {
+          const used = new Set();
+          allLinks.forEach(function (lnk) {
+            if (lnk.device_a_id === devId) used.add(lnk.ifc_a_index);
+            if (lnk.device_b_id === devId) used.add(lnk.ifc_b_index);
+          });
+          const free = (d.interfaces || []).filter(function (ifc) {
+            return !used.has(ifc.index);
+          });
+          ifcSel.innerHTML = "";
+          if (free.length === 0) {
+            ifcSel.innerHTML = "<option>— no free interfaces —</option>";
+            return;
+          }
+          free.forEach(function (ifc) {
+            const opt = document.createElement("option");
+            opt.value = ifc.index;
+            opt.textContent = ifc.name;
+            ifcSel.appendChild(opt);
+          });
+        });
+      }
+
+      function saveLink() {
+        const errEl = document.getElementById("link-error");
+        errEl.textContent = "";
+        const devA = document.getElementById("link-dev-a").value;
+        const ifcA = document.getElementById("link-ifc-a").value;
+        const devB = document.getElementById("link-dev-b").value;
+        const ifcB = document.getElementById("link-ifc-b").value;
+        if (!devA || !devB || !ifcA || !ifcB) {
+          errEl.textContent = "All fields are required.";
+          return;
+        }
+        if (devA === devB) {
+          errEl.textContent = "Device A and Device B must be different.";
+          return;
+        }
+        fetch("/api/links", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            device_a_id: devA,
+            ifc_a_index: parseInt(ifcA),
+            device_b_id: devB,
+            ifc_b_index: parseInt(ifcB),
+          }),
+        })
+          .then((r) => r.json())
+          .then(function (data) {
+            if (data.error) {
+              errEl.textContent = data.error;
+              return;
+            }
+            addLinkModal.hide();
+            loadLinks();
+          })
+          .catch((e) => {
+            errEl.textContent = "Request failed: " + e;
+          });
+      }
+
+      function deleteLink(id) {
+        if (
+          !confirm(
+            "Remove this link? CDP neighbour OIDs will be withdrawn from both devices.",
+          )
+        )
+          return;
+        fetch("/api/links/" + id, { method: "DELETE" })
+          .then(() => loadLinks())
+          .catch((e) => alert("Error: " + e));
+      }
+
+      // ------------------------------------------------------------------ //
+      //  Canvas — vis-network topology planner
+      // ------------------------------------------------------------------ //
+
+      let _canvasNetwork = null;
+      let _canvasNodes = null;
+      let _canvasEdges = null;
+      let _canvasInitialized = false;
+      let _pendingNodeDrop = null; // {x, y, device_type}
+      let _pendingEdge = null; // {from, to, callback}
+      let _layoutSaveTimer = null;
+      let _altKeyHandler = null;
+
+      const _NODE_COLORS = {
+        cisco_router: {
+          background: "#7c3000",
+          border: "#e8580a",
+          highlight: { background: "#b84500", border: "#fb923c" },
+          hover: { background: "#a33800", border: "#fb923c" },
+        },
+        cisco_switch: {
+          background: "#003070",
+          border: "#0a78e8",
+          highlight: { background: "#0050b0", border: "#60a5fa" },
+          hover: { background: "#003d96", border: "#60a5fa" },
+        },
+        windows_server: {
+          background: "#1e293b",
+          border: "#6b7280",
+          highlight: { background: "#334155", border: "#9ca3af" },
+          hover: { background: "#2d3f55", border: "#9ca3af" },
+        },
+      };
+
+      const _TYPE_ICON = {
+        cisco_router: "\uF53F",
+        cisco_switch: "\uF370",
+        windows_server: "\uF3EE",
+      };
+
+      function _nodeLabel(d) {
+        return d.name + "\n" + d.ip;
+      }
+
+      // Shorten interface names: GigabitEthernet0/1 → Gi0/1, FastEthernet0/2 → Fa0/2, Ethernet3 → Eth3
+      function _shortIfc(name) {
+        if (!name) return name;
+        return name
+          .replace(/^GigabitEthernet/i, "Gi")
+          .replace(/^FastEthernet/i, "Fa")
+          .replace(/^TenGigabitEthernet/i, "Te")
+          .replace(/^HundredGigabitEthernet/i, "Hu")
+          .replace(/^Ethernet/i, "Eth")
+          .replace(/^Serial/i, "Se")
+          .replace(/^Loopback/i, "Lo");
+      }
+
+      function initCanvas() {
+        if (_canvasInitialized) return;
+        _canvasInitialized = true;
+
+        _canvasNodes = new vis.DataSet();
+        _canvasEdges = new vis.DataSet();
+
+        const options = {
+          nodes: {
+            shape: "box",
+            font: { color: "#e5e7eb", size: 13, face: "monospace" },
+            borderWidth: 2,
+            borderWidthSelected: 3,
+            shadow: true,
+          },
+          edges: {
+            color: { color: "#4b5563", highlight: "#60a5fa", hover: "#9ca3af" },
+            width: 2,
+            font: {
+              color: "#e5e7eb",
+              size: 12,
+              align: "middle",
+              strokeWidth: 2,
+              strokeColor: "#111827",
+            },
+            smooth: { type: "curvedCW", roundness: 0.1 },
+            arrows: { to: false },
+          },
+          physics: {
+            solver: "forceAtlas2Based",
+            forceAtlas2Based: { springLength: 180, gravitationalConstant: -50 },
+            stabilization: { iterations: 150 },
+          },
+          interaction: { hover: true, tooltipDelay: 200, multiselect: true },
+          manipulation: {
+            enabled: false,
+            addEdge: function (data, callback) {
+              _addEdgeCB(data, callback);
+            },
+          },
+        };
+
+        _canvasNetwork = new vis.Network(
+          document.getElementById("vis-canvas"),
+          { nodes: _canvasNodes, edges: _canvasEdges },
+          options,
+        );
+
+        // Save positions after dragging
+        _canvasNetwork.on("dragEnd", function () {
+          clearTimeout(_layoutSaveTimer);
+          _layoutSaveTimer = setTimeout(saveCanvasLayout, 1000);
+        });
+
+        // After physics stabilizes auto-positioned nodes, freeze them
+        _canvasNetwork.once("stabilizationIterationsDone", function () {
+          setTimeout(function () {
+            _canvasNetwork.setOptions({ physics: { enabled: false } });
+            saveCanvasLayout();
+          }, 200);
+        });
+
+        // Alt key: enter/leave edge-draw mode
+        function _onKeyDown(e) {
+          if (
+            e.key === "Alt" &&
+            document.getElementById("section-canvas") &&
+            !document
+              .getElementById("section-canvas")
+              .classList.contains("d-none")
+          ) {
+            e.preventDefault();
+            _canvasNetwork.addEdgeMode();
+            document.getElementById("vis-canvas").style.cursor = "crosshair";
+          }
+        }
+        function _onKeyUp(e) {
+          if (e.key === "Alt") {
+            if (_pendingEdge === null) _canvasNetwork.disableEditMode();
+            document.getElementById("vis-canvas").style.cursor = "";
+          }
+        }
+        document.addEventListener("keydown", _onKeyDown);
+        document.addEventListener("keyup", _onKeyUp);
+
+        loadCanvas();
+      }
+
+      function loadCanvas() {
+        Promise.all([
+          fetch("/api/devices").then((r) => r.json()),
+          fetch("/api/links").then((r) => r.json()),
+          fetch("/api/canvas/layout").then((r) => r.json()),
+        ])
+          .then(function ([devices, links, layout]) {
+            const nodes = devices.map(function (d) {
+              const pos = layout[d.id];
+              const node = {
+                id: d.id,
+                label: _nodeLabel(d),
+                color:
+                  _NODE_COLORS[d.device_type] || _NODE_COLORS.windows_server,
+                title: d.device_type_label + " — " + d.ip,
+              };
+              if (pos) {
+                node.x = pos.x;
+                node.y = pos.y;
+                node.physics = false;
+              }
+              return node;
+            });
+
+            const edges = links.map(function (lnk) {
+              return {
+                id: lnk.id,
+                from: lnk.device_a_id,
+                to: lnk.device_b_id,
+                label:
+                  _shortIfc(lnk.ifc_a_name) + " ⇔ " + _shortIfc(lnk.ifc_b_name),
+              };
+            });
+
+            _canvasNodes.clear();
+            _canvasEdges.clear();
+            _canvasNodes.add(nodes);
+            _canvasEdges.add(edges);
+
+            // If all nodes have saved positions, disable physics immediately
+            const allPositioned = devices.every(function (d) {
+              return layout[d.id];
+            });
+            if (allPositioned) {
+              _canvasNetwork.setOptions({ physics: { enabled: false } });
+            }
+
+            setTimeout(function () {
+              _canvasNetwork.fit({
+                animation: { duration: 400, easingFunction: "easeInOutQuad" },
+              });
+            }, 100);
+          })
+          .catch(function (err) {
+            console.error("loadCanvas error:", err);
+          });
+      }
+
+      function saveCanvasLayout() {
+        const positions = _canvasNetwork.getPositions();
+        fetch("/api/canvas/layout", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(positions),
+        }).catch(function (err) {
+          console.error("saveCanvasLayout error:", err);
+        });
+      }
+
+      // ---- IP auto-assign ------------------------------------------------
+      function _nextAvailableIP(devices) {
+        if (devices.length === 0) return "192.168.1.1";
+        // Find most common /24 prefix
+        const prefixCount = {};
+        devices.forEach(function (d) {
+          const parts = d.ip.split(".");
+          if (parts.length === 4) {
+            const pfx = parts.slice(0, 3).join(".");
+            prefixCount[pfx] = (prefixCount[pfx] || 0) + 1;
+          }
+        });
+        let bestPfx = "192.168.1";
+        let best = 0;
+        Object.keys(prefixCount).forEach(function (p) {
+          if (prefixCount[p] > best) {
+            best = prefixCount[p];
+            bestPfx = p;
+          }
+        });
+        const usedLastOctets = new Set();
+        devices.forEach(function (d) {
+          const parts = d.ip.split(".");
+          if (parts.slice(0, 3).join(".") === bestPfx)
+            usedLastOctets.add(parseInt(parts[3]));
+        });
+        for (let i = 1; i <= 254; i++) {
+          if (!usedLastOctets.has(i)) return bestPfx + "." + i;
+        }
+        return bestPfx + ".254";
+      }
+
+      // ---- Name auto-suggest --------------------------------------------
+      function _suggestName(devices, type) {
+        const prefixes = {
+          cisco_router: "R",
+          cisco_switch: "SW",
+          windows_server: "SRV",
+        };
+        const pfx = prefixes[type] || "DEV";
+        const existing = new Set(
+          devices.map(function (d) {
+            return d.name;
+          }),
+        );
+        for (let i = 1; i <= 99; i++) {
+          const n = pfx + i;
+          if (!existing.has(n)) return n;
+        }
+        return pfx + "1";
+      }
+
+      // ---- Palette drag -------------------------------------------------
+      function paletteDragStart(event, type) {
+        event.dataTransfer.setData("canvas_device_type", type);
+        event.dataTransfer.effectAllowed = "copy";
+      }
+
+      function canvasDrop(event) {
+        event.preventDefault();
+        const type = event.dataTransfer.getData("canvas_device_type");
+        if (!type) return;
+        const canvasEl = document.getElementById("vis-canvas");
+        const rect = canvasEl.getBoundingClientRect();
+        const domPos = {
+          x: event.clientX - rect.left,
+          y: event.clientY - rect.top,
+        };
+        const visPos = _canvasNetwork.DOMtoCanvas(domPos);
+        _pendingNodeDrop = { x: visPos.x, y: visPos.y, device_type: type };
+
+        // Pre-fill modal
+        fetch("/api/devices")
+          .then((r) => r.json())
+          .then(function (devices) {
+            const typeLabels = {
+              cisco_router: "Cisco Router",
+              cisco_switch: "Cisco Switch",
+              windows_server: "Windows Server",
+            };
+            const badgeColors = {
+              cisco_router: "bg-warning text-dark",
+              cisco_switch: "bg-primary",
+              windows_server: "bg-secondary",
+            };
+            document.getElementById("cn-type").value = type;
+            document.getElementById("cn-type-label").textContent =
+              typeLabels[type] || type;
+            document.getElementById("cn-type-label").className =
+              "badge " + (badgeColors[type] || "bg-secondary");
+            document.getElementById("cn-name").value = _suggestName(
+              devices,
+              type,
+            );
+            document.getElementById("cn-ip").value = _nextAvailableIP(devices);
+            document.getElementById("cn-error").textContent = "";
+            addNodeModal.show();
+          });
+      }
+
+      function saveCanvasNode() {
+        const errEl = document.getElementById("cn-error");
+        const name = document.getElementById("cn-name").value.trim();
+        const ip = document.getElementById("cn-ip").value.trim();
+        const type = document.getElementById("cn-type").value;
+        errEl.textContent = "";
+        if (!name) {
+          errEl.textContent = "Name is required.";
+          return;
+        }
+        if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(ip)) {
+          errEl.textContent = "Invalid IP address.";
+          return;
+        }
+        const body = {
+          device_type: type,
+          name: name,
+          ip: ip,
+          port: 161,
+          community: "public",
+          num_interfaces: 4,
+          cpu_min: 5,
+          cpu_max: 75,
+          trap_destination: "",
+          trap_port: 162,
+          trap_community: "public",
+        };
+        fetch("/api/devices", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        })
+          .then((r) => r.json())
+          .then(function (d) {
+            if (d.error) {
+              errEl.textContent = d.error;
+              return;
+            }
+            const node = {
+              id: d.id,
+              label: _nodeLabel(d),
+              color: _NODE_COLORS[type] || _NODE_COLORS.windows_server,
+              title: d.device_type_label + " \u2014 " + d.ip,
+              x: _pendingNodeDrop.x,
+              y: _pendingNodeDrop.y,
+              physics: false,
+            };
+            _canvasNodes.add(node);
+            addNodeModal.hide();
+            saveCanvasLayout();
+            loadDevices();
+          })
+          .catch(function (e) {
+            errEl.textContent = "Request failed: " + e;
+          });
+      }
+
+      // ---- Edge draw ----------------------------------------------------
+      function _addEdgeCB(data, callback) {
+        document.getElementById("vis-canvas").style.cursor = "";
+        if (data.from === data.to) {
+          callback(null);
+          return;
+        }
+        // Check no duplicate link
+        const existing = _canvasEdges.get({
+          filter: function (e) {
+            return (
+              (e.from === data.from && e.to === data.to) ||
+              (e.from === data.to && e.to === data.from)
+            );
+          },
+        });
+        if (existing.length > 0) {
+          alert("A link already exists between these two devices.");
+          callback(null);
+          return;
+        }
+
+        _pendingEdge = { from: data.from, to: data.to, callback: callback };
+        const errEl = document.getElementById("lim-error");
+        errEl.textContent = "";
+
+        Promise.all([
+          fetch("/api/devices/" + data.from).then((r) => r.json()),
+          fetch("/api/devices/" + data.to).then((r) => r.json()),
+          fetch("/api/links").then((r) => r.json()),
+        ])
+          .then(function ([devA, devB, allLinks]) {
+            // Collect already-used interface indices per device
+            const usedA = new Set();
+            const usedB = new Set();
+            allLinks.forEach(function (lnk) {
+              if (lnk.device_a_id === data.from) usedA.add(lnk.ifc_a_index);
+              if (lnk.device_b_id === data.from) usedB.add(lnk.ifc_b_index);
+              if (lnk.device_a_id === data.to) usedA.add(lnk.ifc_a_index);
+              if (lnk.device_b_id === data.to) usedB.add(lnk.ifc_b_index);
+            });
+            // usedForFrom = all indices used on data.from across both sides
+            const usedForFrom = new Set();
+            const usedForTo = new Set();
+            allLinks.forEach(function (lnk) {
+              if (lnk.device_a_id === data.from)
+                usedForFrom.add(lnk.ifc_a_index);
+              if (lnk.device_b_id === data.from)
+                usedForFrom.add(lnk.ifc_b_index);
+              if (lnk.device_a_id === data.to) usedForTo.add(lnk.ifc_a_index);
+              if (lnk.device_b_id === data.to) usedForTo.add(lnk.ifc_b_index);
+            });
+
+            document.getElementById("lim-dev-a-name").textContent = devA.name;
+            document.getElementById("lim-dev-b-name").textContent = devB.name;
+            const selA = document.getElementById("lim-ifc-a");
+            const selB = document.getElementById("lim-ifc-b");
+            selA.innerHTML = "";
+            selB.innerHTML = "";
+
+            const freeA = (devA.interfaces || []).filter(function (ifc) {
+              return !usedForFrom.has(ifc.index);
+            });
+            const freeB = (devB.interfaces || []).filter(function (ifc) {
+              return !usedForTo.has(ifc.index);
+            });
+
+            if (freeA.length === 0 || freeB.length === 0) {
+              alert(
+                "No free interfaces available on " +
+                  (freeA.length === 0 ? devA.name : devB.name) +
+                  ". Add more interfaces via the Devices tab.",
+              );
+              callback(null);
+              _canvasNetwork.disableEditMode();
+              _pendingEdge = null;
+              return;
+            }
+
+            freeA.forEach(function (ifc) {
+              const o = document.createElement("option");
+              o.value = ifc.index;
+              o.textContent = _shortIfc(ifc.name);
+              selA.appendChild(o);
+            });
+            freeB.forEach(function (ifc) {
+              const o = document.createElement("option");
+              o.value = ifc.index;
+              o.textContent = _shortIfc(ifc.name);
+              selB.appendChild(o);
+            });
+            canvasLinkModal.show();
+          })
+          .catch(function (err) {
+            console.error(err);
+            callback(null);
+            _pendingEdge = null;
+          });
+      }
+
+      function saveLinkIfc() {
+        const errEl = document.getElementById("lim-error");
+        errEl.textContent = "";
+        if (!_pendingEdge) return;
+        const ifcA = parseInt(document.getElementById("lim-ifc-a").value);
+        const ifcB = parseInt(document.getElementById("lim-ifc-b").value);
+        fetch("/api/links", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            device_a_id: _pendingEdge.from,
+            ifc_a_index: ifcA,
+            device_b_id: _pendingEdge.to,
+            ifc_b_index: ifcB,
+          }),
+        })
+          .then((r) => r.json())
+          .then(function (lnk) {
+            if (lnk.error) {
+              errEl.textContent = lnk.error;
+              return;
+            }
+            // Replace temp edge with real link id and label
+            _pendingEdge.callback({
+              from: _pendingEdge.from,
+              to: _pendingEdge.to,
+              id: lnk.id,
+              label:
+                _shortIfc(lnk.ifc_a_name) +
+                " \u21d4 " +
+                _shortIfc(lnk.ifc_b_name),
+            });
+            _canvasNetwork.disableEditMode();
+            _pendingEdge = null;
+            canvasLinkModal.hide();
+          })
+          .catch(function (e) {
+            errEl.textContent = "Request failed: " + e;
+          });
+      }
+
+      function cancelLinkIfc() {
+        if (_pendingEdge) {
+          _pendingEdge.callback(null);
+          _canvasNetwork.disableEditMode();
+          _pendingEdge = null;
+        }
+        canvasLinkModal.hide();
+      }
+
+      // ---- Delete selection ---------------------------------------------
+      function deleteCanvasSelection() {
+        const nodeIds = _canvasNetwork.getSelectedNodes();
+        const edgeIds = _canvasNetwork.getSelectedEdges();
+        if (nodeIds.length === 0 && edgeIds.length === 0) {
+          alert("Nothing selected. Click a node or edge first.");
+          return;
+        }
+        const msg = [];
+        if (nodeIds.length) msg.push(nodeIds.length + " device(s)");
+        if (edgeIds.length) msg.push(edgeIds.length + " link(s)");
+        if (
+          !confirm("Delete " + msg.join(" and ") + "? This cannot be undone.")
+        )
+          return;
+
+        const delEdges = edgeIds.map(function (id) {
+          return fetch("/api/links/" + id, { method: "DELETE" }).catch(
+            () => null,
+          );
+        });
+        // Deleting a node also removes its links on the server (cascade not automatic — delete manually)
+        const edgesOfNodes = [];
+        nodeIds.forEach(function (nid) {
+          _canvasEdges
+            .get({
+              filter: function (e) {
+                return e.from === nid || e.to === nid;
+              },
+            })
+            .forEach(function (e) {
+              if (!edgeIds.includes(e.id)) edgesOfNodes.push(e.id);
+            });
+        });
+        const delNodeEdges = edgesOfNodes.map(function (id) {
+          return fetch("/api/links/" + id, { method: "DELETE" }).catch(
+            () => null,
+          );
+        });
+        const delNodes = nodeIds.map(function (id) {
+          return fetch("/api/devices/" + id, { method: "DELETE" }).catch(
+            () => null,
+          );
+        });
+        Promise.all([...delEdges, ...delNodeEdges, ...delNodes]).then(
+          function () {
+            _canvasNodes.remove(nodeIds);
+            _canvasEdges.remove([...edgeIds, ...edgesOfNodes]);
+            saveCanvasLayout();
+          },
+        );
+      }
+
+      // ------------------------------------------------------------------ //
+      //  Profiles
+      // ------------------------------------------------------------------ //
+      function loadProfiles() {
+        fetch("/api/profiles")
+          .then((r) => r.json())
+          .then(function (profiles) {
+            const tbody = document.getElementById("profile-tbody");
+            tbody.innerHTML = "";
+            if (profiles.length === 0) {
+              tbody.innerHTML = `<tr id="no-profiles-row">
+                <td colspan="4" class="text-center text-muted py-3">
+                  No saved configurations yet — click <strong>Save Current</strong> to save your device list.
+                </td></tr>`;
+              return;
+            }
+            profiles.forEach(function (p) {
+              const tr = document.createElement("tr");
+              tr.innerHTML = `
+                <td class="fw-semibold">${esc(p.name)}</td>
+                <td><span class="badge bg-secondary">${p.count}</span></td>
+                <td class="text-muted small">${esc(p.saved)}</td>
+                <td>
+                  <div class="btn-group btn-group-sm">
+                    <button class="btn btn-outline-success" onclick="loadProfile('${esc(p.name)}')" title="Load this configuration">
+                      <i class="bi bi-upload"></i> Load
+                    </button>
+                    <button class="btn btn-outline-danger" onclick="deleteProfile('${esc(p.name)}')" title="Delete this configuration">
+                      <i class="bi bi-trash"></i>
+                    </button>
+                  </div>
+                </td>`;
+              tbody.appendChild(tr);
+            });
+          })
+          .catch((err) => console.error("Failed to load profiles:", err));
+      }
+
+      function openSaveProfileModal() {
+        document.getElementById("profile-name-input").value = "";
+        document.getElementById("save-profile-error").textContent = "";
+        saveProfileModal.show();
+        setTimeout(
+          () => document.getElementById("profile-name-input").focus(),
+          300,
+        );
+      }
+
+      function saveProfile() {
+        const name = document.getElementById("profile-name-input").value.trim();
+        const errEl = document.getElementById("save-profile-error");
+        errEl.textContent = "";
+        if (!name) {
+          errEl.textContent = "Name is required.";
+          return;
+        }
+        fetch("/api/profiles", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        })
+          .then((r) => r.json())
+          .then(function (data) {
+            if (data.error) {
+              errEl.textContent = data.error;
+              return;
+            }
+            saveProfileModal.hide();
+            loadProfiles();
+          })
+          .catch((e) => {
+            errEl.textContent = "Request failed: " + e;
+          });
+      }
+
+      function loadProfile(name) {
+        if (
+          !confirm(
+            `Load configuration "${name}"?\nThis will stop all running agents and replace the current device list.`,
+          )
+        )
+          return;
+        fetch(`/api/profiles/${encodeURIComponent(name)}`)
+          .then((r) => r.json())
+          .then(function (data) {
+            if (data.error) {
+              alert("Error: " + data.error);
+              return;
+            }
+            loadDevices();
+          })
+          .catch((e) => alert("Error loading profile: " + e));
+      }
+
+      function deleteProfile(name) {
+        if (!confirm(`Delete configuration "${name}"?`)) return;
+        fetch(`/api/profiles/${encodeURIComponent(name)}`, { method: "DELETE" })
+          .then(() => loadProfiles())
+          .catch((e) => alert("Error: " + e));
+      }
+
+      // Allow Enter key in profile name field
+      document
+        .getElementById("profile-name-input")
+        .addEventListener("keydown", function (e) {
+          if (e.key === "Enter") saveProfile();
+        });
+
+      // ------------------------------------------------------------------ //
+      //  Server Network tab
+      // ------------------------------------------------------------------ //
+      function loadServerInterfaces() {
+        fetch("/api/server/interfaces")
+          .then(function (r) {
+            return r.json();
+          })
+          .then(function (data) {
+            if (data.error) return;
+            const sel = document.getElementById("srv-iface-select");
+            sel.innerHTML = "";
+            (data.interfaces || []).forEach(function (iface) {
+              const opt = document.createElement("option");
+              opt.value = iface;
+              opt.textContent = iface;
+              if (iface === data.active) opt.selected = true;
+              sel.appendChild(opt);
+            });
+          })
+          .catch(function (e) {
+            console.error("Failed to load interfaces:", e);
+          });
+      }
+
+      function setServerIface() {
+        const iface = document.getElementById("srv-iface-select").value;
+        const errEl = document.getElementById("srv-iface-error");
+        const okEl = document.getElementById("srv-iface-ok");
+        errEl.textContent = "";
+        okEl.textContent = "";
+        if (!iface) return;
+        fetch("/api/server/iface", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ iface: iface }),
+        })
+          .then(function (r) {
+            return r.json();
+          })
+          .then(function (d) {
+            if (d.error) {
+              errEl.textContent = d.error;
+              return;
+            }
+            okEl.textContent = "Active interface set to " + d.iface;
+            setTimeout(function () {
+              okEl.textContent = "";
+            }, 3000);
+            loadServerIps();
+          })
+          .catch(function (e) {
+            errEl.textContent = "Request failed: " + e;
+          });
+      }
+
+      function loadServerIps() {
+        const tbody = document.getElementById("srv-ip-tbody");
+        tbody.innerHTML =
+          '<tr><td colspan="2" class="text-center text-muted py-3">Loading…</td></tr>';
+        fetch("/api/server/ips")
+          .then(function (r) {
+            return r.json();
+          })
+          .then(function (data) {
+            if (data.error) {
+              tbody.innerHTML =
+                '<tr><td colspan="2" class="text-danger py-3 ps-3">' +
+                data.error +
+                "</td></tr>";
+              return;
+            }
+            document.getElementById("srv-iface-label").textContent = data.iface;
+            tbody.innerHTML = "";
+            if (!data.addresses || data.addresses.length === 0) {
+              tbody.innerHTML =
+                '<tr><td colspan="2" class="text-center text-muted py-3">No addresses found</td></tr>';
+              return;
+            }
+            data.addresses.forEach(function (cidr) {
+              const tr = document.createElement("tr");
+              tr.innerHTML =
+                '<td class="ps-3 font-monospace">' +
+                cidr +
+                "</td>" +
+                '<td><button class="btn btn-outline-danger btn-sm py-0" ' +
+                "onclick=\"removeServerIp('" +
+                cidr +
+                "')\">" +
+                '<i class="bi bi-trash"></i> Remove</button></td>';
+              tbody.appendChild(tr);
+            });
+          })
+          .catch(function (e) {
+            tbody.innerHTML =
+              '<tr><td colspan="2" class="text-danger py-3 ps-3">Request failed: ' +
+              e +
+              "</td></tr>";
+          });
+      }
+
+      function addServerIp() {
+        const ip = document.getElementById("srv-new-ip").value.trim();
+        const prefix = document.getElementById("srv-new-prefix").value.trim();
+        const errEl = document.getElementById("srv-error");
+        errEl.textContent = "";
+        if (!ip) {
+          errEl.textContent = "IP address is required.";
+          return;
+        }
+        if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) {
+          errEl.textContent = "Invalid IP address.";
+          return;
+        }
+        const cidr = ip + "/" + (prefix || "24");
+        fetch("/api/server/ips", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ip_cidr: cidr }),
+        })
+          .then(function (r) {
+            return r.json();
+          })
+          .then(function (d) {
+            if (d.error) {
+              errEl.textContent = d.error;
+              return;
+            }
+            document.getElementById("srv-new-ip").value = "";
+            loadServerIps();
+          })
+          .catch(function (e) {
+            errEl.textContent = "Request failed: " + e;
+          });
+      }
+
+      function addServerIpRange() {
+        const start = document.getElementById("srv-range-start").value.trim();
+        const end = document.getElementById("srv-range-end").value.trim();
+        const prefix = document.getElementById("srv-range-prefix").value.trim();
+        const errEl = document.getElementById("srv-range-error");
+        const okEl = document.getElementById("srv-range-ok");
+        const btn = document.getElementById("srv-range-btn");
+        errEl.textContent = "";
+        okEl.textContent = "";
+        const ipRe = /^\d{1,3}(\.\d{1,3}){3}$/;
+        if (!ipRe.test(start)) {
+          errEl.textContent = "Invalid start IP.";
+          return;
+        }
+        if (!ipRe.test(end)) {
+          errEl.textContent = "Invalid end IP.";
+          return;
+        }
+        btn.disabled = true;
+        okEl.textContent = "Adding…";
+        fetch("/api/server/ips/bulk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            start_ip: start,
+            end_ip: end,
+            prefix: parseInt(prefix) || 24,
+          }),
+        })
+          .then(function (r) {
+            return r.json();
+          })
+          .then(function (d) {
+            btn.disabled = false;
+            if (d.error) {
+              errEl.textContent = d.error;
+              okEl.textContent = "";
+              return;
+            }
+            let msg = "Added " + d.added;
+            if (d.skipped)
+              msg += ", skipped " + d.skipped + " (already present)";
+            if (d.errors && d.errors.length)
+              msg += ", " + d.errors.length + " failed";
+            okEl.textContent = msg;
+            loadServerIps();
+          })
+          .catch(function (e) {
+            btn.disabled = false;
+            errEl.textContent = "Request failed: " + e;
+            okEl.textContent = "";
+          });
+      }
+
+      function removeServerIp(cidr) {
+        const iface =
+          document.getElementById("srv-iface-label").textContent || "interface";
+        if (!confirm("Remove " + cidr + " from " + iface + "?")) return;
+        fetch("/api/server/ips", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ip_cidr: cidr }),
+        })
+          .then(function (r) {
+            return r.json();
+          })
+          .then(function (d) {
+            if (d.error) {
+              alert("Error: " + d.error);
+              return;
+            }
+            loadServerIps();
+          })
+          .catch(function (e) {
+            alert("Request failed: " + e);
+          });
+      }
+
+      // ------------------------------------------------------------------ //
+      //  Discovery
+      // ------------------------------------------------------------------ //
+      let _discResult = null; // last successful scan result
+
+      function runDiscoveryScan() {
+        const ip = document.getElementById("disc-ip").value.trim();
+        if (!ip) {
+          alert("Please enter a target IP address.");
+          return;
+        }
+        const btn = document.getElementById("disc-scan-btn");
+        const prog = document.getElementById("disc-progress");
+        btn.disabled = true;
+        prog.textContent = "Scanning… this may take up to 30 s";
+        document.getElementById("disc-results-card").classList.add("d-none");
+        _discResult = null;
+
+        fetch("/api/discovery/scan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ip: ip,
+            community:
+              document.getElementById("disc-community").value.trim() ||
+              "public",
+            port: parseInt(document.getElementById("disc-port").value) || 161,
+            version: document.getElementById("disc-version").value,
+            include_bridge: document.getElementById("disc-bridge").checked,
+            timeout:
+              parseInt(document.getElementById("disc-timeout").value) || 5,
+            retries:
+              parseInt(document.getElementById("disc-retries").value) || 2,
+          }),
+        })
+          .then(function (r) {
+            return r.json();
+          })
+          .then(function (data) {
+            btn.disabled = false;
+            if (data.error) {
+              prog.textContent = "❌ " + data.error;
+              return;
+            }
+            _discResult = data;
+            const oidCount = Object.keys(data.raw_oids || {}).length;
+            const ifcCount = (data.interfaces || []).length;
+            prog.textContent =
+              "✅ Done — " +
+              ifcCount +
+              " interface(s), " +
+              oidCount +
+              " OID(s).";
+            _populateDiscoveryResults(data);
+            document
+              .getElementById("disc-results-card")
+              .classList.remove("d-none");
+          })
+          .catch(function (e) {
+            btn.disabled = false;
+            prog.textContent = "❌ Request failed: " + e;
+          });
+      }
+
+      function _populateDiscoveryResults(r) {
+        // System
+        const sysFields = [
+          "sysDescr",
+          "sysObjectID",
+          "sysName",
+          "sysLocation",
+          "sysContact",
+          "sysUpTime",
+          "sysServices",
+        ];
+        const sysTbody = document.getElementById("disc-sys-tbody");
+        sysTbody.innerHTML = "";
+        sysFields.forEach(function (k) {
+          const tr = document.createElement("tr");
+          tr.innerHTML =
+            '<th class="text-muted" style="width:160px">' +
+            k +
+            "</th><td>" +
+            esc(r.system[k] || "—") +
+            "</td>";
+          sysTbody.appendChild(tr);
+        });
+
+        // Interfaces
+        const ifcTbody = document.getElementById("disc-ifc-tbody");
+        ifcTbody.innerHTML = "";
+        (r.interfaces || []).forEach(function (ifc) {
+          const adminMap = { 1: "up", 2: "down", 3: "testing" };
+          const operMap = {
+            1: "up",
+            2: "down",
+            3: "testing",
+            4: "unknown",
+            5: "dormant",
+            6: "notPresent",
+            7: "lowerLayerDown",
+          };
+          const tr = document.createElement("tr");
+          tr.innerHTML = [
+            "<td>" + esc(ifc.ifIndex || "") + "</td>",
+            "<td>" + esc(ifc.ifName || ifc.ifDescr || "") + "</td>",
+            "<td>" + esc(ifc.ifType || "") + "</td>",
+            "<td>" + esc(ifc.ifSpeed || "") + "</td>",
+            "<td>" +
+              esc(adminMap[ifc.ifAdminStatus] || ifc.ifAdminStatus || "") +
+              "</td>",
+            "<td>" +
+              esc(operMap[ifc.ifOperStatus] || ifc.ifOperStatus || "") +
+              "</td>",
+            "<td>" + esc(ifc.ifAlias || "") + "</td>",
+          ].join("");
+          ifcTbody.appendChild(tr);
+        });
+
+        // CDP
+        const cdpTbody = document.getElementById("disc-cdp-tbody");
+        cdpTbody.innerHTML = "";
+        if ((r.cdp_neighbors || []).length === 0) {
+          cdpTbody.innerHTML =
+            '<tr><td colspan="5" class="text-center text-muted py-3">No CDP neighbours found</td></tr>';
+        } else {
+          r.cdp_neighbors.forEach(function (n) {
+            const tr = document.createElement("tr");
+            tr.innerHTML = [
+              "<td>" + esc(n.cdpCacheDeviceId || "") + "</td>",
+              "<td>" + esc(n.cdpCacheAddress || "") + "</td>",
+              "<td>" + esc(n.cdpCachePlatform || "") + "</td>",
+              "<td>" + esc(n.cdpCacheDevicePort || "") + "</td>",
+              "<td class='small text-muted'>" +
+                esc((n.cdpCacheVersion || "").substring(0, 60)) +
+                "</td>",
+            ].join("");
+            cdpTbody.appendChild(tr);
+          });
+        }
+
+        // LLDP
+        const lldpTbody = document.getElementById("disc-lldp-tbody");
+        lldpTbody.innerHTML = "";
+        if ((r.lldp_neighbors || []).length === 0) {
+          lldpTbody.innerHTML =
+            '<tr><td colspan="5" class="text-center text-muted py-3">No LLDP neighbours found</td></tr>';
+        } else {
+          r.lldp_neighbors.forEach(function (n) {
+            const tr = document.createElement("tr");
+            tr.innerHTML = [
+              "<td>" + esc(n.lldpRemChassisId || "") + "</td>",
+              "<td>" + esc(n.lldpRemSysName || "") + "</td>",
+              "<td>" + esc(n.lldpRemPortId || "") + "</td>",
+              "<td>" + esc(n.lldpRemPortDesc || "") + "</td>",
+              "<td class='small text-muted'>" +
+                esc((n.lldpRemSysDesc || "").substring(0, 60)) +
+                "</td>",
+            ].join("");
+            lldpTbody.appendChild(tr);
+          });
+        }
+
+        // Bridge
+        const bridgeKeys = Object.keys(r.bridge || {});
+        document
+          .getElementById("dtab-bridge-li")
+          .classList.toggle("d-none", bridgeKeys.length === 0);
+        const bridgeTbody = document.getElementById("disc-bridge-tbody");
+        bridgeTbody.innerHTML = "";
+        bridgeKeys.forEach(function (k) {
+          const tr = document.createElement("tr");
+          tr.innerHTML =
+            '<th class="text-muted" style="width:220px">' +
+            k +
+            "</th><td>" +
+            esc(r.bridge[k]) +
+            "</td>";
+          bridgeTbody.appendChild(tr);
+        });
+
+        // Raw OIDs
+        const rawOids = r.raw_oids || {};
+        const oidKeys = Object.keys(rawOids);
+        document.getElementById("disc-oid-count").textContent = oidKeys.length;
+        _renderRawOids(rawOids, "");
+      }
+
+      function _renderRawOids(rawOids, filter) {
+        const tbody = document.getElementById("disc-raw-tbody");
+        tbody.innerHTML = "";
+        const lf = (filter || "").toLowerCase();
+        Object.keys(rawOids)
+          .sort()
+          .forEach(function (oid) {
+            const val = rawOids[oid];
+            if (lf && oid.indexOf(lf) < 0 && val.toLowerCase().indexOf(lf) < 0)
+              return;
+            const tr = document.createElement("tr");
+            tr.innerHTML = "<td>" + esc(oid) + "</td><td>" + esc(val) + "</td>";
+            tbody.appendChild(tr);
+          });
+      }
+
+      function filterRawOids(val) {
+        if (!_discResult) return;
+        _renderRawOids(_discResult.raw_oids || {}, val);
+      }
+
+      function _genUuid() {
+        return ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(
+          /[018]/g,
+          function (c) {
+            return (
+              c ^
+              (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (c / 4)))
+            ).toString(16);
+          },
+        );
+      }
+
+      function saveDiscoveryProfile() {
+        if (!_discResult) return;
+        const name = prompt(
+          "Profile name:",
+          (_discResult.system && _discResult.system.sysName) ||
+            _discResult.target_ip,
+        );
+        if (!name || !name.trim()) return;
+        const payload = Object.assign({}, _discResult, {
+          name: name.trim(),
+          id: _genUuid(),
+        });
+        fetch("/api/discovery/profiles", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        })
+          .then(function (r) {
+            return r.json();
+          })
+          .then(function (d) {
+            if (d.error) {
+              alert("Error: " + d.error);
+              return;
+            }
+            loadDiscoveryProfiles();
+            alert("Profile '" + name.trim() + "' saved.");
+          })
+          .catch(function (e) {
+            alert("Request failed: " + e);
+          });
+      }
+
+      function createDeviceFromDiscovery() {
+        if (!_discResult) return;
+        // Infer device type
+        const dt = _discResult.inferred_device_type || "cisco_router";
+        const typeMap = {
+          cisco_router: "cisco_router",
+          cisco_switch: "cisco_switch",
+          windows_server: "windows_server",
+        };
+        document.getElementById("f-type").value = typeMap[dt] || "cisco_router";
+        document.getElementById("f-name").value =
+          _discResult.system.sysName || "";
+        document.getElementById("f-ip").value = _discResult.target_ip || "";
+        document.getElementById("f-community").value =
+          _discResult.community || "public";
+        const ifcCount = (_discResult.interfaces || []).length;
+        if (ifcCount > 0) document.getElementById("f-ifc").value = ifcCount;
+        document.getElementById("f-port").value = 161;
+        // Store extra_oids + ifc_names on hidden fields for saveDevice()
+        document.getElementById("edit-id").value = "";
+        _discExtraOids = _discResult.raw_oids || {};
+        _discIfcNames = (_discResult.interfaces || []).map(function (i) {
+          return i.ifName || i.ifDescr || "";
+        });
+        document.getElementById("deviceModalTitle").textContent =
+          "Add Device (from Discovery)";
+        document.getElementById("modal-error").textContent = "";
+        deviceModal.show();
+      }
+
+      function loadDiscoveryProfiles() {
+        fetch("/api/discovery/profiles")
+          .then(function (r) {
+            return r.json();
+          })
+          .then(function (profiles) {
+            const tbody = document.getElementById("disc-profiles-tbody");
+            tbody.innerHTML = "";
+            if (!profiles.length) {
+              tbody.innerHTML =
+                '<tr><td colspan="6" class="text-center text-muted py-4">No profiles saved yet — run a scan first.</td></tr>';
+              return;
+            }
+            // Back-fill missing ids (profiles saved before id was added)
+            profiles.forEach(function (p) {
+              if (!p.id) p.id = _genUuid();
+            });
+            profiles.forEach(function (p) {
+              const tr = document.createElement("tr");
+              const oidCount = Object.keys(p.raw_oids || {}).length;
+              const ifcCount = (p.interfaces || []).length;
+              const ts = (p.timestamp || "").substring(0, 19).replace("T", " ");
+              tr.innerHTML = [
+                '<td class="ps-3 fw-semibold">' + esc(p.name || "") + "</td>",
+                '<td class="font-monospace">' +
+                  esc(p.target_ip || "") +
+                  "</td>",
+                "<td>" + esc(ts) + "</td>",
+                "<td>" + ifcCount + "</td>",
+                "<td>" + oidCount + "</td>",
+                '<td><div class="btn-group btn-group-sm">',
+                '<button class="btn btn-outline-primary" onclick="loadDiscoveryProfileIntoForm(\'' +
+                  p.id +
+                  '\')" title="Load into Add Device form">',
+                '<i class="bi bi-box-arrow-in-right"></i> Use</button>',
+                '<button class="btn btn-outline-danger" onclick="deleteDiscoveryProfile(\'' +
+                  p.id +
+                  '\')" title="Delete profile">',
+                '<i class="bi bi-trash"></i></button>',
+                "</div></td>",
+              ].join("");
+              tbody.appendChild(tr);
+            });
+            window._discProfilesCache = profiles;
+          })
+          .catch(function (e) {
+            console.error("Failed to load discovery profiles:", e);
+          });
+      }
+
+      function loadDiscoveryProfileIntoForm(profileId) {
+        const profiles = window._discProfilesCache || [];
+        const p = profiles.find(function (x) {
+          return x.id === profileId;
+        });
+        if (!p) {
+          alert("Profile not found.");
+          return;
+        }
+        // Re-use the same logic as createDeviceFromDiscovery by temporarily setting _discResult
+        _discResult = p;
+        createDeviceFromDiscovery();
+      }
+
+      function deleteDiscoveryProfile(profileId) {
+        if (!confirm("Delete this discovery profile?")) return;
+        fetch("/api/discovery/profiles/" + encodeURIComponent(profileId), {
+          method: "DELETE",
+        })
+          .then(function (r) {
+            return r.json();
+          })
+          .then(function (d) {
+            if (d.error) {
+              alert("Error: " + d.error);
+              return;
+            }
+            loadDiscoveryProfiles();
+          })
+          .catch(function (e) {
+            alert("Request failed: " + e);
+          });
+      }
+
+      // ------------------------------------------------------------------ //
+      //  Init
+      // ------------------------------------------------------------------ //
+      loadDevices();
+      loadProfiles();
+    </script>
+  </body>
+</html>
