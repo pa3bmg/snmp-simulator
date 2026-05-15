@@ -60,6 +60,7 @@ dnf install -y \
     iproute \
     net-tools \
     gcc \
+    rsync \
     2>/dev/null || error "dnf install failed"
 
 # Python 3.11 is available on Rocky 9+; on Rocky 8 python3 is 3.6 — try to
