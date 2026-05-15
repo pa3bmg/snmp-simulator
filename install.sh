@@ -54,18 +54,22 @@ info "Source directory: $SCRIPT_DIR"
 # --------------------------------------------------------------------------- #
 info "Installing system packages..."
 dnf install -y \
-    python3 \
-    python3-pip \
-    python3-devel \
     iproute \
     net-tools \
     gcc \
     rsync \
     2>/dev/null || error "dnf install failed"
 
-# Python 3.11 is available on Rocky 9+; on Rocky 8 python3 is 3.6 — try to
-# get a newer one via dnf module if available
-PYTHON_BIN="$(command -v python3.11 2>/dev/null || command -v python3.9 2>/dev/null || command -v python3 2>/dev/null)"
+# Rocky/RHEL 8 ships Python 3.6 by default; pysnmp>=7 requires Python 3.8+.
+# Install Python 3.11 from AppStream if python3.11 is not already present.
+if ! command -v python3.11 &>/dev/null; then
+    info "Python 3.11 not found — installing from AppStream..."
+    dnf install -y python3.11 python3.11-pip 2>/dev/null || \
+        dnf module install -y python311 2>/dev/null || \
+        error "Could not install Python 3.11. Please install it manually: dnf install python3.11"
+fi
+
+PYTHON_BIN="$(command -v python3.11)"
 info "Using Python: $PYTHON_BIN ($($PYTHON_BIN --version))"
 
 # --------------------------------------------------------------------------- #
@@ -97,7 +101,7 @@ info "Creating Python virtual environment..."
 "$PYTHON_BIN" -m venv "$VENV"
 
 info "Installing Python dependencies..."
-"$VENV/bin/pip" install --upgrade pip -q
+"$VENV/bin/pip" install --upgrade pip setuptools wheel -q
 "$VENV/bin/pip" install -r "$INSTALL_DIR/requirements.txt" || \
     error "pip install failed — check requirements.txt and internet connectivity"
 
