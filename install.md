@@ -55,8 +55,6 @@ The installer detects `offline_packages/` and uses `pip install --no-index` — 
 
 ## Online installation
 
-
-
 From your workstation, copy the project folder to the target server. Replace `<server-ip>` with the actual IP address.
 
 ```bash
